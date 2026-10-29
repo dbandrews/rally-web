@@ -1,0 +1,29 @@
+{
+  "name": "rally-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "node tools/smoke.mjs",
+    "drive": "node tools/drive.mjs",
+    "keys": "node tools/keys-playtest.mjs",
+    "stages": "node tools/all-stages.mjs",
+    "check": "npm run build && npm test && npm run smoke"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "playwright": "^1.64.1",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  },
+  "dependencies": {
+    "lil-gui": "^0.21.0",
+    "three": "^0.186.1"
+  }
+}

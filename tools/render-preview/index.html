@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>rally-web render preview</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #111; overflow: hidden; }
+      #game { position: fixed; inset: 0; }
+      #info { position: fixed; left: 8px; top: 8px; color: #fff; font: 12px/1.4 monospace; text-shadow: 0 1px 2px #000; pointer-events: none; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="info"></div>
+    <script type="module" src="/tests/render/fixtures/preview.ts"></script>
+  </body>
+</html>
