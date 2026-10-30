@@ -1,0 +1,544 @@
+{
+ "version": 1,
+ "stages": {
+  "corsica-1-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "corsica-1-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "corsica-2-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "corsica-2-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "corsica-3-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "corsica-3-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-1a-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-1a-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-1b-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-1b-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-1c-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-1c-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-2a-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-2a-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-2b-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-2b-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-2c-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-2c-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-3a-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-3a-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-3b-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-3b-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-3c-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "hillclimb-3c-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "iceracing-1-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "iceracing-1-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "iceracing-2-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "iceracing-2-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "iceracing-3-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "iceracing-3-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "kenya-1-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "kenya-1-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "kenya-2-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "kenya-2-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "kenya-3-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "kenya-3-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "newzealand-1-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "newzealand-1-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "newzealand-2-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "newzealand-2-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "newzealand-3-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "newzealand-3-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "rallycross-1-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "rallycross-1-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "rallycross-2-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "rallycross-2-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "rallycross-3-f": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ],
+  "rallycross-3-r": [
+   "cars",
+   "collision",
+   "effects",
+   "environment",
+   "objects",
+   "track"
+  ]
+ },
+ "cars": [
+  "Astra",
+  "AudiS1",
+  "AudiS1HC",
+  "Beetle",
+  "CitroenXsara",
+  "CitroenXsaraRC",
+  "Corolla",
+  "DeltaIntergrale",
+  "DeltaS4",
+  "Escudo",
+  "FordEscort",
+  "FordFocus",
+  "FordFocusCosworth",
+  "FordRS200",
+  "ImprezaHC",
+  "ImprezaWRX",
+  "Lancer",
+  "LancerEVO",
+  "Metro6R4",
+  "Micra",
+  "NissanSkyline",
+  "Peugeot205",
+  "Peugeot206",
+  "Peugeot306",
+  "Peugeot405",
+  "Renault5",
+  "Saab93",
+  "SaabViggen",
+  "ToyotaTacoma"
+ ],
+ "carParts": {
+  "Astra": [
+   "cars",
+   "effects"
+  ],
+  "AudiS1": [
+   "cars",
+   "effects"
+  ],
+  "AudiS1HC": [
+   "cars",
+   "effects"
+  ],
+  "Beetle": [
+   "cars",
+   "effects"
+  ],
+  "CitroenXsara": [
+   "cars",
+   "effects"
+  ],
+  "CitroenXsaraRC": [
+   "cars",
+   "effects"
+  ],
+  "Corolla": [
+   "cars",
+   "effects"
+  ],
+  "DeltaIntergrale": [
+   "cars",
+   "effects"
+  ],
+  "DeltaS4": [
+   "cars",
+   "effects"
+  ],
+  "Escudo": [
+   "cars",
+   "effects"
+  ],
+  "FordEscort": [
+   "cars",
+   "effects"
+  ],
+  "FordFocus": [
+   "cars",
+   "effects"
+  ],
+  "FordFocusCosworth": [
+   "cars",
+   "effects"
+  ],
+  "FordRS200": [
+   "cars",
+   "effects"
+  ],
+  "ImprezaHC": [
+   "cars",
+   "effects"
+  ],
+  "ImprezaWRX": [
+   "cars",
+   "effects"
+  ],
+  "Lancer": [
+   "cars",
+   "effects"
+  ],
+  "LancerEVO": [
+   "cars",
+   "effects"
+  ],
+  "Metro6R4": [
+   "cars",
+   "effects"
+  ],
+  "Micra": [
+   "cars",
+   "effects"
+  ],
+  "NissanSkyline": [
+   "cars",
+   "effects"
+  ],
+  "Peugeot205": [
+   "cars",
+   "effects"
+  ],
+  "Peugeot206": [
+   "cars",
+   "effects"
+  ],
+  "Peugeot306": [
+   "cars",
+   "effects"
+  ],
+  "Peugeot405": [
+   "cars",
+   "effects"
+  ],
+  "Renault5": [
+   "cars",
+   "effects"
+  ],
+  "Saab93": [
+   "cars",
+   "effects"
+  ],
+  "SaabViggen": [
+   "cars",
+   "effects"
+  ],
+  "ToyotaTacoma": [
+   "cars",
+   "effects"
+  ]
+ },
+ "global": [
+  "audio",
+  "effects"
+ ],
+ "audio": true,
+ "textures": 6466
+}

@@ -32,8 +32,8 @@ original_version/
 __pycache__/
 *.pyc
 
-# original-asset pipeline (docs/ASSETS.md): converted packs, extraction cache, Python venv
-public/assets/
+# original-asset pipeline (docs/ASSETS.md): extraction cache, Python venv
+# public/assets/ is committed so CI builds include the game assets
 .cache/
 .venv/
 
