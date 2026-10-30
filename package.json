@@ -13,6 +13,7 @@
     "drive": "node tools/drive.mjs",
     "keys": "node tools/keys-playtest.mjs",
     "stages": "node tools/all-stages.mjs",
+    "assets": "node tools/assets/run.mjs",
     "check": "npm run build && npm test && npm run smoke"
   },
   "devDependencies": {

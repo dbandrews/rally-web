@@ -12,14 +12,15 @@
  *     readonly domElement: HTMLCanvasElement
  *     readonly cameraTuning: CameraTuning             // live; defaults from §5.3 / §6 Camera
  *     loadStage(stage: Stage): void | Promise<void>
- *     addCar(id: string, archetype: ArchetypeId, opts?: AddCarOptions): void
+ *     addCar(id: string, archetype: ArchetypeId, opts?: AddCarOptions): Promise<void>   // resolves with the final visual
  *     removeCar(id: string): void
  *     update(frameDt: number, alpha: number, cars: readonly CarRenderState[]): void   // renders a frame
  *     setCameraMode(mode: CameraMode): void; nextCamera(): CameraMode; getCameraMode(): CameraMode
  *     lookBack(on: boolean): void
  *     setCameraTuning(partial: DeepPartial<CameraTuning>): void
  *     resize(): void; stats(): RenderStats; dispose(): void
- *   makeCameraTuning(): CameraTuning                  // §5.3 defaults (used by main.ts "reset to original")
+ *   makeCameraTuning(): CameraTuning                  // §5.3 defaults = ImprezaWRX's table (archetype cars)
+ *   defaultCameraTuning(): CameraTuning               // + the player car's own CarCamera (main.ts "reset to original")
  *
  * Inputs are THREE space already (CarRenderState.pos/quat are interpolated by main.ts). Car mesh faces -Z.
  * Wheel conventions: src/core/space.ts (rotation.y = -steerAngle, rotation.x = -spinAngle).
@@ -34,9 +35,23 @@
  * Module map (src/render/): cameraRig (§5.3), sky (dome + env map), terrain, road, scenery (+ gates),
  * sceneryModels, carModel (lofted bodies), livery (canvas liveries), carVisual (wheels / lights),
  * effects (particles, skid marks, per-car emitters), weather, textures (procedural canvases), geomUtil,
- * heightSampler.
+ * heightSampler; orig/ = the ORIGINAL-asset look (docs/ASSETS.md).
+ *
+ * Original assets: for a ported stage whose asset manifest lists render parts (track / objects /
+ * environment), loadStage awaits OriginalStageView (src/render/orig/index.ts) and shows it INSTEAD of the
+ * procedural terrain / road / scenery, with the original's gamma-space output (NoToneMapping +
+ * LinearSRGBColorSpace); procedural stages keep ACES + sRGB. No manifest, `?orig=0` or any load failure →
+ * the procedural stage (one console warning at most). The TextureStore (orig/textures.ts) lives as long as
+ * the renderer; `?s3tc=0` forces its JS DXT decoder.
+ * Original cars: each frame the projected track lightmap under the car (OriginalStageView.carLightmapAt, through
+ * the car palette) is handed to its visual (t3; `?carlm=0` keeps it white for A/B comparisons); on a procedural
+ * stage the stage's preset is mapped onto the shared original uniforms (orig/environment.ts
+ * applyProceduralAtmosphere) so the original car matches the scene. addCar's promise settles once the original
+ * visual is attached (the procedural car is hidden meanwhile and shows only as the fallback); the player car's own
+ * CarCamera positions (cars.json `camera`, orig/car.ts carCameraTuning) replace the generic §5.3 table.
  */
 import * as THREE from 'three';
+import { isPortedStageId, warnOnce } from '../core/assets';
 import { DT } from '../core/constants';
 import { deepMergeInto } from '../core/paths';
 import { applyThreeQuat } from '../core/space';
@@ -55,6 +70,11 @@ import type {
 import { CameraRig, makeCameraTuning } from './cameraRig';
 import { CarVisual } from './carVisual';
 import { CarEffects, ParticleSystem, SkidMarks } from './effects';
+import { OriginalStageView, TextureStore, resetOrigUniforms, type TextureScope } from './orig';
+import { carCameraTuning, loadOriginalCar } from './orig/car';
+import { origUniforms } from './orig/common';
+import { OrigEnvironment, OrigFramePipeline, applyOrigAtmosphere, applyProceduralAtmosphere, origPassOptions } from './orig/environment';
+import { setOrigBuiltinMode } from './orig/environmentFog';
 import { buildRoad } from './road';
 import { buildScenery, buildStageLabels, updateSceneryLod, type SceneryBatch } from './scenery';
 import { SkyDome } from './sky';
@@ -95,6 +115,11 @@ interface CarEntry {
   effects: CarEffects | null;
   ghost: boolean;
   player: boolean;
+  /** Texture scope of the original car visual (cars builder, loadOriginalCar); disposed after the visual. */
+  origScope: TextureScope | null;
+  /** Projected track lightmap under the original car (OriginalStageView.carLightmapAt): last patch + texture. */
+  lmPatch: number;
+  lmTex: THREE.Texture | null;
 }
 
 const isNight = (env: EnvironmentPreset) => env.timeOfDay < 6.5 || env.timeOfDay > 19.5 || env.sunDir.y < 0.05;
@@ -126,6 +151,9 @@ function urlParam(name: string): string | null {
 export class GameRenderer implements IGameRenderer {
   readonly domElement: HTMLCanvasElement;
   readonly cameraTuning: CameraTuning = makeCameraTuning();
+  /** Original car whose CarCamera positions are in cameraTuning (null = the generic §5.3 table) and its patch. */
+  private cameraCar: string | null = null;
+  private cameraPatch: DeepPartial<CameraTuning> | null = null;
   private readonly container: HTMLElement;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -137,6 +165,16 @@ export class GameRenderer implements IGameRenderer {
   private readonly particles = new ParticleSystem(3200);
   private readonly skids = new SkidMarks(7000);
   private stageRoot: THREE.Group | null = null;
+  /** Original-asset look of the current stage (null = procedural). */
+  private origView: OriginalStageView | null = null;
+  /** The original's frame for an original view (sky pass, main pass, flares, gamma ramp; orig/environment.ts). */
+  private origPipeline: OrigFramePipeline | null = null;
+  /** Original textures (shared across stage loads; each view holds a scope). */
+  readonly textureStore: TextureStore;
+  private loadSeq = 0;
+  /** The OriginalStageView.load in flight. View loads run one at a time: a superseded load must settle (its
+   *  components may still write the shared origUniforms) before a newer stage load resets them. */
+  private viewLoad: Promise<OriginalStageView | null> | null = null;
   private terrainChunks: TerrainChunk[] = [];
   private sceneryBatches: SceneryBatch[] = [];
   private stage: Stage | null = null;
@@ -172,6 +210,8 @@ export class GameRenderer implements IGameRenderer {
 
   /** CPU rasteriser detected (headless tooling): defaults to 'low' quality, no MSAA. */
   readonly softwareGL: boolean;
+  /** The track lightmap under original cars (`?carlm=0`: off, t3 = white; diagnostics). */
+  private readonly carLightmaps = !/^(0|false|no|off)$/i.test(urlParam('carlm') ?? '');
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -182,6 +222,7 @@ export class GameRenderer implements IGameRenderer {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1;
+    this.textureStore = new TextureStore(this.renderer);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.domElement = this.renderer.domElement;
@@ -258,7 +299,7 @@ export class GameRenderer implements IGameRenderer {
     const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
     this.renderer.setPixelRatio(this.pixelRatioOverride ?? Math.min(dpr, p.pixelRatio));
     this.renderer.shadowMap.enabled = p.shadows;
-    this.sun.castShadow = p.shadows;
+    this.sun.castShadow = this.sunShadowWanted();
     if (this.sun.shadow.mapSize.x !== p.shadowMap) {
       this.sun.shadow.mapSize.set(p.shadowMap, p.shadowMap);
       this.sun.shadow.map?.dispose();
@@ -273,6 +314,7 @@ export class GameRenderer implements IGameRenderer {
     cam.far = 500;
     cam.updateProjectionMatrix();
     this.particles.density = p.particles;
+    this.particles.orig.density = p.particles; // the original effects' particle cap (1 on 'high' = the original's)
     // materials need a recompile when shadows toggle
     this.scene.traverse((o) => {
       const m = (o as THREE.Mesh).material;
@@ -284,20 +326,69 @@ export class GameRenderer implements IGameRenderer {
 
   // ----------------------------------------------------------------------------------------- stage
 
-  loadStage(stage: Stage): void {
+  async loadStage(stage: Stage): Promise<void> {
+    const seq = ++this.loadSeq;
+    // textures released from here on (this view, the cars re-added with it) stay idle for reuse until the next load
+    const texGen = this.textureStore.beginGeneration();
     this.disposeStage();
+    this.origPipeline?.setEnvironment(null); // its environment went with the view
     this.stage = stage;
     const env = stage.environment;
+    // original-asset look for ported stages with built render parts (null → procedural, see header)
+    let view: OriginalStageView | null = null;
+    if (this.viewLoad) {
+      // an older ported load is still running: let it finish first (procedural loads stay synchronous otherwise)
+      await this.viewLoad;
+      if (seq !== this.loadSeq) return;
+    }
+    if (isPortedStageId(stage.id)) {
+      const p = OriginalStageView.load(stage, this.renderer, this.textureStore).catch((e) => {
+        warnOnce(`render-orig:${stage.id}`, `[render] original view of ${stage.id} failed: ${(e as Error)?.message ?? e}`);
+        return null;
+      });
+      this.viewLoad = p;
+      try {
+        view = await p;
+      } finally {
+        if (this.viewLoad === p) this.viewLoad = null;
+      }
+      if (seq !== this.loadSeq) {
+        view?.dispose(); // a newer loadStage() started while this one was loading
+        return;
+      }
+    }
+    // no original view: the shared original uniforms back to the defaults, then the procedural preset mapped onto
+    // the ones an original car reads (light, ambient, sun, fog)
+    if (!view) {
+      resetOrigUniforms();
+      applyProceduralAtmosphere(env, origUniforms);
+    }
     const root = new THREE.Group();
     root.name = `stage:${stage.id}`;
-    const terrain = buildTerrain(stage);
-    root.add(terrain.group);
-    this.terrainChunks = terrain.chunks;
-    root.add(buildRoad(stage, terrain.sampler));
-    const scenery = buildScenery(stage, terrain.sampler);
-    this.sceneryBatches = scenery.batches;
-    root.add(scenery.group);
-    if (stage.labels?.length) root.add(buildStageLabels(stage, terrain.sampler));
+    let groundAt: (x: number, z: number) => number;
+    if (view) {
+      const v = view;
+      root.add(v.group);
+      groundAt = (x, z) => v.groundAt(x, z);
+    } else {
+      const terrain = buildTerrain(stage);
+      root.add(terrain.group);
+      this.terrainChunks = terrain.chunks;
+      root.add(buildRoad(stage, terrain.sampler));
+      const scenery = buildScenery(stage, terrain.sampler);
+      this.sceneryBatches = scenery.batches;
+      root.add(scenery.group);
+      if (stage.labels?.length) root.add(buildStageLabels(stage, terrain.sampler));
+      const sampler = terrain.sampler;
+      groundAt = (x, z) => sampler.heightAt(x, z);
+    }
+    this.origView = view;
+    // what the previous loads released and this one did not take back (TextureStore idle pool)
+    this.textureStore.flushIdle(texGen);
+    // no sun shadow map over an original track: none of its materials receives shadows (the original has none)
+    this.sun.castShadow = this.sunShadowWanted();
+    this.setOriginalOutput(view !== null);
+    this.sky.mesh.visible = !view?.replacesSky;
     this.scene.add(root);
     this.stageRoot = root;
 
@@ -317,25 +408,40 @@ export class GameRenderer implements IGameRenderer {
     this.envMap = this.sky.makeEnvMap(this.renderer, env);
     this.scene.environment = this.envMap?.texture ?? null;
     this.scene.environmentIntensity = 0.9;
+    // procedural particles inside an original view: the original track fog and projected-lightmap light
+    this.particles.setOriginal(view !== null, view ? (x, y, z, out, hint) => view.particleLightAt(x, y, z, out, hint) : null);
     this.particles.setEnvironment(env);
     this.particles.clear();
     this.skids.clear();
-    if (env.weather === 'snow' || env.weather === 'rain' || env.weather === 'dust') {
+    // original car effects of this stage (effects builder; procedural effects until / unless they load)
+    this.particles.setStage(stage.id, view !== null, this.textureStore);
+    // an original view: the original fog / lights for the procedural content in it (gap 4, orig/environment*.ts);
+    // its weather is the original's (environment component), never the procedural precipitation
+    setOrigBuiltinMode(view !== null);
+    if (view) applyOrigAtmosphere(this.scene, this.hemi, this.sun, origUniforms);
+    if (!view && (env.weather === 'snow' || env.weather === 'rain' || env.weather === 'dust')) {
       this.precip = new Precipitation(env.weather, QUALITY[this.quality].particles);
       this.scene.add(this.precip.object);
     }
 
-    // camera range: everything past the fog is invisible anyway
+    // camera range: everything past the fog is invisible anyway (an original sky box may need more); with the
+    // original environment the frame pipeline sets the sky / main pass ranges per frame (orig/environment.ts)
     const cam = this.rig.camera;
-    cam.far = Math.max(400, env.fogFar * 1.08 + 50);
+    cam.far = Math.max(400, env.fogFar * 1.08 + 50, view?.cameraFar ?? 0);
     cam.near = 0.1;
     cam.updateProjectionMatrix();
-    const sampler = terrain.sampler;
-    this.rig.groundAt = (x, z) => sampler.heightAt(x, z);
+    const envC = view?.component('environment');
+    const origEnv = envC instanceof OrigEnvironment ? envC : null;
+    if (view && origEnv) {
+      this.origPipeline ??= new OrigFramePipeline(this.renderer);
+      this.origPipeline.setEnvironment(origEnv, origPassOptions(view.group, view.cameraFar));
+    }
+    this.rig.groundAt = groundAt;
     this.rig.invalidate();
     for (const e of this.cars.values()) {
       e.visual.setNight(this.night);
       e.effects?.reset();
+      this.clearCarLightmap(e);
     }
     this.lastPlayerStep = -1;
     this.warmup = AUTO_WARMUP_S;
@@ -348,7 +454,38 @@ export class GameRenderer implements IGameRenderer {
     }
   }
 
+  /**
+   * A restart of the loaded stage (main.ts restarts the race in place): clears what the last run left behind (dust /
+   * spray particles, skid marks, the cars' emitter state) and re-snaps the camera, as loadStage() does, while the
+   * stage view, its textures and the car visuals stay loaded.
+   */
+  resetStageEffects(): void {
+    this.particles.clear();
+    this.skids.clear();
+    for (const e of this.cars.values()) e.effects?.reset();
+    this.rig.invalidate();
+    this.lastPlayerStep = -1;
+  }
+
+  /** The sun casts three's shadow map only where something receives it: the quality preset allows shadows and the
+   *  stage is not an original view with its track (track, objects, effects and the original car are custom shaders
+   *  without shadow chunks; the original's drop shadow comes from OrigCarFx). */
+  private sunShadowWanted(): boolean {
+    return QUALITY[this.quality].shadows && !this.origView?.hasTrack;
+  }
+
+  /** Gamma-space output for the original look (bytes in = bytes out, like D3D8), ACES + sRGB otherwise. */
+  private setOriginalOutput(original: boolean): void {
+    this.renderer.toneMapping = original ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+    this.renderer.outputColorSpace = original ? THREE.LinearSRGBColorSpace : THREE.SRGBColorSpace;
+  }
+
   private disposeStage(): void {
+    // the original view owns (and disposes) its own subtree; detach it before the generic traversal (its car
+    // lightmaps go with it: unbind them from the cars first)
+    for (const e of this.cars.values()) this.clearCarLightmap(e);
+    this.origView?.dispose();
+    this.origView = null;
     if (this.stageRoot) {
       this.scene.remove(this.stageRoot);
       const mats = new Set<THREE.Material>();
@@ -375,22 +512,90 @@ export class GameRenderer implements IGameRenderer {
 
   // ----------------------------------------------------------------------------------------- cars
 
-  addCar(id: string, archetype: ArchetypeId, opts: AddCarOptions = {}): void {
+  /**
+   * Add a car. The promise resolves once the car's final visual is in place (the original car attached, or the
+   * procedural fallback decided: no assets, `?orig=0`, a failed load, the car removed meanwhile); it never rejects.
+   * main.ts awaits it with the stage load, as the original loads the car with the race.
+   */
+  addCar(id: string, archetype: ArchetypeId, opts: AddCarOptions = {}): Promise<void> {
     this.removeCar(id);
     const ghost = !!opts.ghost;
     const visual = new CarVisual(archetype, { ghost, livery: opts.livery, night: this.night });
     this.scene.add(visual.root);
     const player = opts.player ?? ![...this.cars.values()].some((c) => c.player);
     if (player) for (const c of this.cars.values()) c.player = false;
-    const effects = ghost ? null : new CarEffects(this.particles, this.skids);
-    this.cars.set(id, { visual, effects, ghost, player });
+    const effects = ghost ? null : new CarEffects(this.particles, this.skids, opts.origCar);
+    const entry: CarEntry = { visual, effects, ghost, player, origScope: null, lmPatch: -1, lmTex: null };
+    this.cars.set(id, entry);
     if (player) this.rig.invalidate();
+    if (opts.origCar) return this.loadOrigCar(id, entry, opts.origCar);
+    if (player) this.applyCarCamera(null, null); // an archetype car: the generic §5.3 positions
+    return Promise.resolve();
+  }
+
+  /** docs/ASSETS.md §10 gap 2: the original car replaces the procedural one once loaded (cars builder). The
+   *  procedural CarVisual stays hidden until then and shows only as the fallback; a result for a car removed /
+   *  re-added meanwhile is dropped. The player car brings its own camera positions (carCameraTuning). */
+  private loadOrigCar(id: string, entry: CarEntry, carName: string): Promise<void> {
+    const scope = this.textureStore.scope();
+    const stageId = this.stage && isPortedStageId(this.stage.id) ? this.stage.id : null;
+    entry.visual.setOriginalPending(true);
+    return loadOriginalCar(carName, { stageId, textures: scope, ghost: entry.ghost })
+      .catch((e) => {
+        warnOnce(`render-orig-car:${carName}`, `[render] original car ${carName} failed: ${(e as Error)?.message ?? e}`);
+        return null;
+      })
+      .then((orig) => {
+        const current = this.cars.get(id) === entry;
+        if (current) entry.visual.setOriginalPending(false);
+        if (!orig || !current) {
+          orig?.dispose();
+          scope.dispose();
+          if (current && entry.player) this.applyCarCamera(null, null); // the procedural stand-in: generic camera
+          return;
+        }
+        orig.setNight(this.night);
+        entry.visual.setOriginal(orig, this.rig.camera);
+        entry.origScope = scope;
+        if (entry.player) this.applyCarCamera(carName, carCameraTuning(orig.info));
+      });
+  }
+
+  /**
+   * The player car's camera positions (MECHANICS_SPEC §5.3): the original reads every view from the player car's
+   * own <Car>CarCamera entries; makeCameraTuning() holds ImprezaWRX's, used for the archetype cars. Only the
+   * per-car fields change (bumper / bonnet / look-back / chase / tether); FOV, rates and other tuning stay. A
+   * reload of the same car keeps the (possibly tuned) positions.
+   */
+  private applyCarCamera(carName: string | null, patch: DeepPartial<CameraTuning> | null): void {
+    if (carName === this.cameraCar) return;
+    const base = makeCameraTuning();
+    deepMergeInto(this.cameraTuning, {
+      bumperPos: base.bumperPos,
+      bonnetPos: base.bonnetPos,
+      lookBackPos: base.lookBackPos,
+      chase: base.chase,
+      tether: base.tether,
+    });
+    if (patch) deepMergeInto(this.cameraTuning, patch);
+    this.cameraCar = carName;
+    this.cameraPatch = patch;
+  }
+
+  /** The untuned camera of the current player car (§5.3 defaults + its own CarCamera positions): main.ts "reset to
+   *  original". */
+  defaultCameraTuning(): CameraTuning {
+    const t = makeCameraTuning();
+    if (this.cameraPatch) deepMergeInto(t, this.cameraPatch);
+    return t;
   }
 
   removeCar(id: string): void {
     const e = this.cars.get(id);
     if (!e) return;
-    e.visual.dispose();
+    e.visual.dispose(); // disposes the original visual too (then its texture scope)
+    e.origScope?.dispose();
+    e.effects?.dispose();
     this.cars.delete(id);
   }
 
@@ -406,7 +611,8 @@ export class GameRenderer implements IGameRenderer {
       const e = this.cars.get(c.id);
       if (!e) continue;
       e.visual.update(c, frameDt);
-      e.effects?.update(c.telemetry);
+      if (!e.ghost) this.updateCarLightmap(e, c);
+      e.effects?.update(c.telemetry, c);
       if (c.player || (!target && e.player)) {
         target = c;
         const sc = c.telemetry.stepCount;
@@ -448,18 +654,45 @@ export class GameRenderer implements IGameRenderer {
     const lod = QUALITY[this.quality].lod;
     updateTerrainLod(this.terrainChunks, cam.position, lod);
     updateSceneryLod(this.sceneryBatches, cam.position, lod);
-    this.particles.update(simDt);
+    this.origView?.update(cam, frameDt, lod);
+    this.particles.update(simDt, cam);
     this.skids.flush();
     this.precip?.update(frameDt, cam.position, this.carVel);
-    this.renderer.render(this.scene, cam);
+    // an original environment: its pass order + gamma ramp (orig/environment.ts OrigFramePipeline)
+    if (this.origPipeline?.active) this.origPipeline.render(this.scene, cam);
+    else this.renderer.render(this.scene, cam);
     if (typeof performance !== 'undefined') this.cpuMs += (performance.now() - t0 - this.cpuMs) * 0.1;
     if (this.autoQuality && frameDt > 0) this.adaptQuality(frameDt);
+  }
+
+  /** t3 of an original car: the projected lightmap of the track patch under it (white off the track / without an
+   *  original view). While a newly entered patch's texture loads, the previous patch's stays bound. */
+  private updateCarLightmap(e: CarEntry, c: CarRenderState): void {
+    const o = e.visual.original;
+    if (!o) return;
+    const smp = this.carLightmaps ? (this.origView?.carLightmapAt(c.pos.x, c.pos.y, c.pos.z, e.lmPatch) ?? null) : null;
+    if (!smp) {
+      if (e.lmPatch !== -1 || e.lmTex) this.clearCarLightmap(e);
+      return;
+    }
+    e.lmPatch = smp.patch;
+    if (smp.texture) {
+      e.lmTex = smp.texture;
+      o.setLightmap(smp.texture, smp.proj);
+    }
+  }
+
+  private clearCarLightmap(e: CarEntry): void {
+    e.lmPatch = -1;
+    e.lmTex = null;
+    e.visual.original?.setLightmap(null);
   }
 
   private followShadow(pos: THREE.Vector3, quat: THREE.Quaternion): void {
     if (!this.sun.castShadow && !this.stage) return;
     const env = this.stage?.environment;
-    const sd = env ? this.tmpV2.set(env.sunDir.x, env.sunDir.y, env.sunDir.z) : this.tmpV2.set(0.45, 0.8, 0.4);
+    // an original view lights its procedural content with the original sun (origUniforms.sunDir, three space)
+    const sd = this.origView ? this.tmpV2.copy(origUniforms.sunDir.value) : env ? this.tmpV2.set(env.sunDir.x, env.sunDir.y, env.sunDir.z) : this.tmpV2.set(0.45, 0.8, 0.4);
     if (sd.lengthSq() < 1e-6) sd.set(0, 1, 0);
     sd.normalize();
     if (sd.y < 0.15) sd.y = 0.15; // keep shadows sane for very low suns
@@ -505,6 +738,11 @@ export class GameRenderer implements IGameRenderer {
   }
 
   // ----------------------------------------------------------------------------------------- cameras
+
+  /** The render camera (read-only; e.g. the audio listener, CamListener.con). */
+  get camera(): THREE.PerspectiveCamera {
+    return this.rig.camera;
+  }
 
   setCameraMode(mode: CameraMode): void {
     this.rig.setMode(mode);
@@ -570,11 +808,41 @@ export class GameRenderer implements IGameRenderer {
       particles: this.particles.alive,
       skidSegments: this.skids.segments,
       cameraMode: this.rig.mode,
+      // original car whose own CarCamera positions the rig uses (null = the generic §5.3 table)
+      cameraCar: this.cameraCar,
       flipped: this.rig.flipped,
       camera: { x: +cam.position.x.toFixed(2), y: +cam.position.y.toFixed(2), z: +cam.position.z.toFixed(2), fov: cam.fov },
       programs: this.renderer.info.programs?.length ?? 0,
+      // loaded original parts (+ 'effects' while the original car effects are active) and the shared uniforms
+      orig: this.origView ? { parts: [...this.origView.parts, ...(this.particles.orig.active ? ['effects'] : [])], hasTrack: this.origView.hasTrack } : null,
+      origUniforms: this.origUniformsInfo(),
+      s3tc: this.textureStore.s3tc,
+      // original car visuals (cars builder): id → original car name (null = procedural archetype car) + LOD set
+      // (+ the stage whose cars.json it uses, and the track patch whose lightmap it is lit by; −1 = none / white)
+      origCars: [...this.cars].map(([id, e]) => ({
+        id,
+        car: e.visual.original?.carName ?? null,
+        lod: e.visual.original?.lod ?? null,
+        stage: e.visual.original?.stageId ?? null,
+        lightmapPatch: e.lmTex ? e.lmPatch : -1,
+      })),
       geometries: this.renderer.info.memory.geometries,
       textures: this.renderer.info.memory.textures,
+    };
+  }
+
+  /** The shared original uniforms (what an original car / material is lit and fogged with), rounded. */
+  private origUniformsInfo(): Record<string, unknown> {
+    const u = origUniforms;
+    const v = (x: THREE.Vector2 | THREE.Vector3) => x.toArray().map((n) => +n.toFixed(4));
+    const f = u.trackFog;
+    return {
+      carLight: v(u.carLight.value),
+      carAmbient: v(u.carAmbient.value),
+      sunDir: v(u.sunDir.value),
+      trackFog: { enabled: f.enabled.value, color: v(f.color.value), start: f.start.value, end: f.end.value, clamp: f.clamp.value },
+      carLightmap: { min: v(u.carLightmapMin.value), max: v(u.carLightmapMax.value), clamp: v(u.carLightmapClamp.value) },
+      particleLightmapMin: v(u.particleLightmapMin.value),
     };
   }
 
@@ -583,6 +851,8 @@ export class GameRenderer implements IGameRenderer {
     this.resizeObs?.disconnect();
     for (const id of [...this.cars.keys()]) this.removeCar(id);
     this.disposeStage();
+    this.origPipeline?.dispose();
+    this.textureStore.dispose();
     this.particles.dispose();
     this.skids.dispose();
     this.sky.dispose();

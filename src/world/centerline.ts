@@ -10,6 +10,8 @@ import { catmullRom, resampleUniform, type P2 } from './spline';
 
 const PROJECT_WINDOW = 60;
 
+const EMPTY_CONTROL: readonly P2[] = [];
+
 export class Centerline {
   readonly closed: boolean;
   readonly n: number;
@@ -44,15 +46,32 @@ export class Centerline {
   readonly minZ: number;
   readonly maxZ: number;
 
-  constructor(control: readonly P2[], closed: boolean, ds = 1) {
-    const fine = catmullRom(control, closed, 0.2);
-    const r = resampleUniform(fine.x, fine.z, closed, ds);
+  constructor(control: readonly P2[], closed: boolean, ds = 1, dense?: { x: ArrayLike<number>; z: ArrayLike<number>; step: number; length: number }) {
+    let rx: Float64Array;
+    let rz: Float64Array;
+    let length: number;
+    let step: number;
+    if (dense) {
+      // already-uniform dense polyline (ported stages): used AS IS, so the per-sample arrays
+      // the caller derived from the same resampling stay length-compatible (setElevation).
+      rx = Float64Array.from(dense.x);
+      rz = Float64Array.from(dense.z);
+      length = dense.length;
+      step = dense.step;
+    } else {
+      const fine = catmullRom(control, closed, 0.2);
+      const r = resampleUniform(fine.x, fine.z, closed, ds);
+      rx = r.x;
+      rz = r.z;
+      length = r.length;
+      step = r.step;
+    }
     this.closed = closed;
-    this.x = r.x;
-    this.z = r.z;
-    this.n = r.x.length;
-    this.ds = r.step;
-    this.length = r.length;
+    this.x = rx;
+    this.z = rz;
+    this.n = rx.length;
+    this.ds = step;
+    this.length = length;
     const n = this.n;
     this.y = new Float64Array(n);
     this.grade = new Float64Array(n);
@@ -105,6 +124,15 @@ export class Centerline {
     this.minZ = minZ;
     this.maxZ = maxZ;
     this.buildGrid();
+  }
+
+  /**
+   * Centre line from an ALREADY uniform dense polyline (ported stages: the evaluated original
+   * spline, src/world/portSpline.ts resampleXYZ) — used as-is with the caller's arc-length
+   * figures (the ported s parameter is 3-D arc length, matching the original's distances).
+   */
+  static fromDense(xs: ArrayLike<number>, zs: ArrayLike<number>, closed: boolean, step: number, length: number): Centerline {
+    return new Centerline(EMPTY_CONTROL, closed, step, { x: xs, z: zs, step, length });
   }
 
   /** Index helper: wraps when closed, clamps when open. */

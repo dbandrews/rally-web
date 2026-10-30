@@ -6,7 +6,8 @@
 //
 // Options
 //   --stage <id>            stage id (default: testpad)
-//   --car <archetype>       awd_wrc | fwd_hatch | rwd_classic (default awd_wrc)
+//   --car <name>            awd_wrc | fwd_hatch | rwd_classic, or an original car (ORIG_CAR_IDS, e.g. ImprezaWRX);
+//                           default: the game's (the original default car when the cars are built, else awd_wrc)
 //   --tyre <0..4|name>      tyre type (default: stage default)
 //   --seed <n>              stage / sim seed (default 1)
 //   --cam <i|name>          camera mode (default: renderer default)
@@ -18,12 +19,20 @@
 //   --shots <K>             screenshots evenly spaced over the run (default 3; 0 = none)
 //   --out <dir>             output dir for screenshots + trace.json (default artifacts/drive)
 //   --param path=value      setParam before the run (repeatable), e.g. --param mass=1400 --param camera.fov=80
+//   --query k=v             extra game URL parameter (repeatable), e.g. --query collision=0 --query orig=0; it
+//                           overrides the parameters above (docs/ARCHITECTURE.md lists the URL parameters)
 //   --countdown             run the real countdown instead of startRace() (default: skip)
 //   --timescale <x>         loop time scale
 //   --url <base>            use an already running dev server (e.g. http://localhost:5173/)
 //   --headed                show the browser window
 //   --width/--height        viewport (default 1280x720)
 //   --full                  include the full 5 Hz time series in the printed JSON (always in trace.json)
+//
+// Every sample carries the wheels' surfaces AND material ids (`materials`, -1 = no contact), the original collision
+// record (`collision`: hull contact + its raw material, object hit count + last type, bush) and the race events since
+// the previous sample (`events`, e.g. { type: 'reset', reason }; pacenotes left out). The summary adds the reset
+// reasons, object hits, hull / bush samples and the materials seen. The printed result is also written to
+// <out>/result.json (trace.json holds the time series).
 //
 // Stepped mode (deterministic, independent of the headless frame rate; for full-stage runs):
 //   --until-finish          drive until the race finishes (implies --stepped); fails if it does not
@@ -32,6 +41,8 @@
 //   --max-sim <s>           sim-time cap for --until-finish (default 600)
 //   --shot-every <s>        stepped mode: a screenshot every s sim seconds (default 30 with --until-finish, else
 //                           --shots evenly over --seconds); --shots 0 disables screenshots
+//   --frame-wait 0          stepped mode: do not wait for a presented frame after each chunk (default: wait, so
+//                           headless SwiftShader never queues a backlog of renders in front of a screenshot)
 //   --aggression <x>        autopilot aggression (0.3..1.2)
 //
 // Health checks (summary.checks, all modes; result.ok requires all of them): noConsoleErrors, finite telemetry
@@ -99,10 +110,19 @@ const query = {
   countdown: args.countdown ? 1 : 0,
   audio: 0,
 };
+// --query k=v: extra URL parameters (repeatable; all-stages.mjs forwards its own --query)
+for (const q of asList(args.query)) {
+  if (q === true) continue;
+  const s = String(q);
+  const eq = s.indexOf('=');
+  if (eq <= 0) throw new Error(`bad --query '${s}' (want key=value)`);
+  query[s.slice(0, eq)] = s.slice(eq + 1);
+}
+const frameWait = !(args['frame-wait'] === '0' || args['frame-wait'] === 'false');
 
 const result = {
   ok: false,
-  args: { ...query, seconds, keys: args.keys ?? null, shots, stepped: stepped ? stepChunk : false, untilFinish },
+  args: { ...query, seconds, keys: args.keys ?? null, shots, stepped: stepped ? stepChunk : false, untilFinish, frameWait: stepped ? frameWait : undefined },
   errors: [],
   screenshots: [],
 };
@@ -144,6 +164,8 @@ try {
       const t = r.getTelemetry();
       const race = r.getRaceState();
       const p = r.probe();
+      const ev = typeof r.getRaceEvents === 'function' ? r.getRaceEvents().filter((e) => e.type !== 'pacenote') : [];
+      const col = t.collision ?? null;
       return {
         simTime: +t.simTime.toFixed(3),
         speedKmh: +t.speedKmh.toFixed(2),
@@ -161,6 +183,11 @@ try {
         airborne: t.airborne,
         pos: { x: +t.pos.x.toFixed(2), y: +t.pos.y.toFixed(2), z: +t.pos.z.toFixed(2) },
         surfaces: t.wheels.map((w) => w.surface ?? '-').join(','),
+        materials: t.wheels.map((w) => (w.contact ? w.material : -1)).join(','),
+        collision: col
+          ? { hull: col.hull, hullMat: col.hullMaterial, objHits: col.objectHits, objType: col.objectType, bush: col.bush }
+          : null,
+        ...(ev.length ? { events: ev } : {}),
         modes: t.wheels.map((w) => w.mode).join(''),
         phase: race.phase,
         raceTime: +race.time.toFixed(3),
@@ -205,12 +232,18 @@ try {
     let prevS = null;
     let loopDist = 0;
     while (simT < seconds) {
-      const st = await page.evaluate((n) => {
-        const r = window.__rally;
-        const t = r.step(n);
-        const race = r.getRaceState();
-        return { simTime: t.simTime, phase: race.phase, s: race.s };
-      }, stepChunk);
+      const st = await page.evaluate(
+        async ([n, wait]) => {
+          const r = window.__rally;
+          const t = r.step(n);
+          const race = r.getRaceState();
+          // one frame per chunk: the browser must reach its next frame (the step's render committed) before the next
+          // chunk, else headless SwiftShader queues the renders and a later screenshot waits for the whole backlog
+          if (wait) await new Promise((res) => requestAnimationFrame(() => res()));
+          return { simTime: t.simTime, phase: race.phase, s: race.s };
+        },
+        [stepChunk, frameWait],
+      );
       simT = st.simTime - sim0;
       await sample();
       trace[trace.length - 1].t = +simT.toFixed(2);
@@ -293,6 +326,11 @@ try {
     airborneSamples: trace.filter((p) => p.airborne).length,
     gearsUsed: [...new Set(trace.map((p) => p.gear))].sort((a, b) => a - b),
     surfacesSeen: [...new Set(trace.flatMap((p) => p.surfaces.split(',')))].filter((s) => s !== '-'),
+    materialsSeen: [...new Set(trace.flatMap((p) => p.materials.split(',').map(Number)))].filter((m) => m >= 0).sort((a, b) => a - b),
+    resetReasons: trace.flatMap((p) => (p.events ?? []).filter((e) => e.type === 'reset').map((e) => ({ simTime: p.simTime, s: p.s, reason: e.reason }))),
+    objectHits: trace.length && trace[0].collision ? last.collision.objHits - trace[0].collision.objHits : null,
+    hullContactSamples: trace.filter((p) => p.collision?.hull).length,
+    bushSamples: trace.filter((p) => p.collision?.bush).length,
     finalS: last.s,
     finalProgress: last.progress,
     resets: final.race.resets,
@@ -360,6 +398,11 @@ try {
 } finally {
   if (browser) await browser.close().catch(() => {});
   if (server) await server.close().catch(() => {});
+}
+try {
+  fs.writeFileSync(path.join(outDir, 'result.json'), JSON.stringify(result, null, 2));
+} catch (e) {
+  result.errors.push(`result.json: ${e}`);
 }
 console.log(JSON.stringify(result, null, 2));
 process.exit(result.ok ? 0 : 1);

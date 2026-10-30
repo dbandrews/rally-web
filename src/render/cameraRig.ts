@@ -22,7 +22,8 @@ import { clamp, perFrameK } from '../core/math';
 import { mirror } from '../core/space';
 import type { CameraMode, CameraTuning, CarTelemetry, ChaseCamEntry, V3 } from '../core/types';
 
-/** §5.3 / §6 Camera defaults. */
+/** §5.3 / §6 Camera defaults. The positions are ImprezaWRX's CarCamera table (the archetype cars use them); an
+ *  original player car brings its own (cars.json `camera`, orig/car.ts carCameraTuning, renderer applyCarCamera). */
 export function makeCameraTuning(): CameraTuning {
   return {
     fov: 70,

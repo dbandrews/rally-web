@@ -224,9 +224,16 @@ export class FakeCar implements ICarSim {
   gear = 1;
   rpm = 3000;
   yawRate = 0;
+  /** CarSim.setTrackBraking (post-finish phys+0x44 braking factor; 0 = off, reset clears it). */
+  trackBraking = 0;
+
+  setTrackBraking(factor: number): void {
+    this.trackBraking = Number.isFinite(factor) && factor > 0 ? factor : 0;
+  }
 
   reset(pose: SimPose): void {
     this.lastPose = pose;
+    this.trackBraking = 0;
     // sim → three: (x, y, -z); heading from the sim quaternion's forward (+z sim)
     this.pos = { x: pose.pos.x, y: pose.pos.y, z: -pose.pos.z };
     const q = pose.q;
@@ -307,6 +314,7 @@ export class FakeCar implements ICarSim {
       yawRateCapActive: false,
       parked: this.parked,
       impactImpulse: 0,
+      collision: { hull: false, hullMaterial: 0, hullStrength: 0, objectHits: 0, objectType: -1, objectStrength: 0, bush: false },
       simFaults: 0,
       posSim: { x: this.pos.x, y: this.pos.y, z: -this.pos.z },
       quatSim: { w: qy.w, x: -qy.x, y: -qy.y, z: qy.z },

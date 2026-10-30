@@ -12,6 +12,7 @@
 import { MATERIAL, MATERIAL_SOLID_MIN, surfaceFromMaterial } from '../../src/core/constants';
 import { dot, normalize, qIdentity, qYawSim } from '../../src/core/math';
 import type { Obstacle, RayHit, SimPose, SimV3, SurfaceId, WorldQuery } from '../../src/core/types';
+import { segmentViaRaycast } from '../../src/core/worldQuery';
 
 export interface FlatWorldOptions {
   /** Uniform surface (default 'tarmac'). Ignored if `materialAt` is given. */
@@ -59,6 +60,8 @@ export function createFlatWorld(opts: FlatWorldOptions = {}): FlatWorld {
       const p = { x: o.x + d.x * t, y: o.y + d.y * t, z: o.z + d.z * t };
       return { dist: t, normal: { ...n }, material: matAt(p.x, p.z), point: p };
     },
+    // the original's segment query (start below the plane = miss, one-sided), via the shared adapter
+    segment: (o, ray, slot) => segmentViaRaycast(world, o, ray, slot),
     heightAt,
     normalAt: () => ({ ...n }),
     materialAt: (x, z) => matAt(x, z),

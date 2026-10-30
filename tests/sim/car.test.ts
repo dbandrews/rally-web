@@ -66,8 +66,22 @@ describe('§3 / §4 parameter tables', () => {
     sand: [[0.899, 0.719], [1.28, 1.024], [1.449, 1.159], [1.35, 1.08], [1.35, 1.08]],
     cobbles: [[1.75, 1.4], [1.75, 1.4], [1.75, 1.4], [1.75, 1.4], [1.75, 1.4]],
     water: [[1.895, 1.622], [1.784, 1.499], [1.674, 1.339], [1.498, 1.198], [1.41, 1.128]],
+    // appended original materials (§4.4 rows of PhysicsParam.con through the §4.2 formulas)
+    wood: [[1.526, 1.221], [1.6, 1.28], [1.6, 1.28], [1.6, 1.28], [1.6, 1.28]],
+    snowChunky: [[0.242, 0.194], [0.339, 0.272], [0.339, 0.272], [1.31, 1.048], [1.504, 1.203]],
+    snowDeep: [[0.25, 0.2], [0.35, 0.28], [0.35, 0.28], [1.35, 1.08], [1.55, 1.24]],
+    snowAsphalt: [[0.339, 0.272], [0.437, 0.349], [0.437, 0.349], [1.31, 1.048], [1.407, 1.125]],
+    snowDitch: [[0.25, 0.2], [0.35, 0.28], [0.35, 0.28], [1.35, 1.08], [1.55, 1.24]],
+    leaf: [[1.75, 1.4], [1.7, 1.36], [1.6, 1.28], [1.5, 1.2], [1.4, 1.12]],
+    asphaltGrass: [[1.825, 1.46], [1.725, 1.38], [1.7, 1.36], [1.65, 1.32], [1.625, 1.3]],
+    gravelGrass: [[1.4, 1.12], [1.45, 1.16], [1.5, 1.2], [1.45, 1.16], [1.4, 1.12]],
+    mudGrass: [[1.3, 1.04], [1.35, 1.08], [1.4, 1.12], [1.35, 1.08], [1.3, 1.04]],
+    mudDitch: [[1.45, 1.16], [1.45, 1.16], [1.45, 1.16], [1.45, 1.16], [1.45, 1.16]],
+    sandDeep: [[1.65, 1.32], [1.65, 1.32], [1.65, 1.32], [1.65, 1.32], [1.65, 1.32]],
+    sandDark: [[0.899, 0.719], [1.28, 1.024], [1.449, 1.159], [1.35, 1.08], [1.35, 1.08]],
+    sandDarkDeep: [[1.65, 1.32], [1.65, 1.32], [1.65, 1.32], [1.65, 1.32], [1.65, 1.32]],
   };
-  it('§4.3 static / kinetic μ for all 10 surfaces × 5 tyre types (±0.002)', () => {
+  it('§4.3 static / kinetic μ for all 23 surfaces × 5 tyre types (±0.002)', () => {
     for (const id of SURFACE_IDS) {
       const def = DEFAULT_SURFACE_TABLE[id];
       expect(def.material).toBe(MATERIAL[id]);
@@ -79,7 +93,8 @@ describe('§3 / §4 parameter tables', () => {
   });
   it('§4.3 DEEP set and surface columns', () => {
     const deep = SURFACE_IDS.filter((id) => DEFAULT_SURFACE_TABLE[id].deep);
-    expect(deep.sort()).toEqual(['grass', 'gravelDeep']);
+    // the original's DEEP switch (FUN_006d0410): orig ids {0, 9, 11, 12, 18, 19, 22}
+    expect(deep.sort()).toEqual(['grass', 'gravelDeep', 'mudDitch', 'sandDarkDeep', 'sandDeep', 'snowDeep', 'snowDitch']);
     const g = DEFAULT_SURFACE_TABLE.gravelDeep;
     expect([g.bodyK, g.bodyKScale, g.maxDepth, g.epsilon, g.frictionLevel, g.bump, g.bumpFlag]).toEqual([1.0, 0.25, 0.04, 0.4, 0.0, 0.02, 1]);
     expect(g.tyre[2].bestRollK).toBe(5.01);
@@ -131,6 +146,9 @@ describe('§2 tables and derived values', () => {
     } as const;
     for (const id of ARCHETYPE_IDS) {
       const c = makeCar({ car: id });
+      // 0.5 s at rest first: the load moment is one step lagged (§2.5.5) and the rwd car leaves the settle with a
+      // decaying standstill pitch chatter (lm.z ±840 N·m right after it, < 40 after 0.5 s)
+      run(c, 0.5, () => ctl());
       const d = c.debug();
       expect(Math.abs(d.frontShare2 - exp[id].fs2)).toBeLessThan(5e-4);
       expect(Math.abs(-d.wheels[0].load - exp[id].F)).toBeLessThan(10);
@@ -139,7 +157,9 @@ describe('§2 tables and derived values', () => {
       expect(d.wheels.map((w) => w.brakeCap)).toEqual([5000, 5000, 3000, 3000]);
     }
   });
-  it('ride height at equilibrium ≈ 0.42 / 0.38-0.40 / 0.47-0.49 m (§3.2) and wheel centres near y ≈ -0.12 (awd)', () => {
+  // v1.5: the spring reads the compression FRACTION (SL − hitDist)/SL (FUN_006cf620 with the ray's c0 / c4, §2.5.3), so
+  // the static compression is (1 − x)·SL² ≈ 0.074 m instead of 0.10 m and every car rides ≈ 2.5 cm higher than v1.4
+  it('ride height at equilibrium ≈ 0.446 / 0.421 / 0.508 m (§3.2, v1.5) and wheel centres near y ≈ -0.12 (awd)', () => {
     const h: Record<string, number> = {};
     for (const id of ARCHETYPE_IDS) {
       const c = makeCar({ car: id });
@@ -147,9 +167,9 @@ describe('§2 tables and derived values', () => {
       h[id] = c.telemetry().posSim.y;
       if (id === 'awd_wrc') for (const w of c.telemetry().wheels) inRange(w.visual.centreLocal.y, -0.14, -0.1);
     }
-    inRange(h.awd_wrc, 0.41, 0.43);
-    inRange(h.fwd_hatch, 0.37, 0.41);
-    inRange(h.rwd_classic, 0.46, 0.5);
+    inRange(h.awd_wrc, 0.435, 0.455);
+    inRange(h.fwd_hatch, 0.41, 0.43);
+    inRange(h.rwd_classic, 0.495, 0.52);
   });
 });
 
@@ -304,23 +324,37 @@ describe('§2.10 sleep, §2.3.5 hill-hold, §0.3 DEV toggles', () => {
 // =====================================================================================================
 describe('§2.9 chassis collision, obstacles, W19 flip assist', () => {
   const roof = qFromAxisAngle({ x: 0, y: 0, z: 1 }, Math.PI);
-  it('dropped on its roof from 1 m (gravel): comes to rest within 1 s', () => {
+  // v1.5: the original's body solver FUN_006d0970 (ported literally, proven against the executed exe) replaces the
+  // DEV-4 impulse model. On its roof the body rests on the solver's push-out and normal impulse; the impulse uses the
+  // one-step-lagged ω (B+0x44), so the body keeps a period-2 rock of |ω| ≈ 0.09 rad/s (≈ 0.04° per step, invisible).
+  it('dropped on its roof from 1 m (gravel): comes to rest within 1 s (height and attitude steady)', () => {
     const world = createFlatWorld({ surface: 'gravel' });
     const c = new CarSim({ params: makeCarParams('awd_wrc', { tyreType: 2 }), world });
     c.reset({ pos: { x: 0, y: 2.0, z: 0 }, q: roof }, 0); // roof points (y = 1.0) 1 m above the ground
     const ys: number[] = [];
-    run(c, 1.5, () => ctl(), () => ys.push(c.telemetry().posSim.y));
+    const ups: number[] = [];
+    run(c, 1.5, () => ctl(), () => {
+      const q = c.telemetry().quatSim;
+      ys.push(c.telemetry().posSim.y);
+      ups.push(1 - 2 * (q.x * q.x + q.z * q.z)); // world y of the body up axis
+    });
     const t = c.telemetry();
     expect(t.bodyOnGround).toBe(true);
     expect(t.impactImpulse >= 0).toBe(true);
-    // at rest from 1.0 s on: height change < 5 mm over the last 0.5 s, slow body rates
+    // at rest from 1.0 s on: height change < 5 mm and attitude change < 0.2° over the last 0.5 s
     const tail = ys.slice(Math.round(1 / DT));
     expect(Math.max(...tail) - Math.min(...tail)).toBeLessThan(0.005);
+    const upTail = ups.slice(Math.round(1 / DT)).map((u) => Math.acos(Math.max(-1, Math.min(1, u))));
+    expect(((Math.max(...upTail) - Math.min(...upTail)) * 180) / Math.PI).toBeLessThan(0.2);
     inRange(t.posSim.y, 0.95, 1.05);
-    expect(Math.hypot(t.angVelLocal.x, t.angVelLocal.y, t.angVelLocal.z)).toBeLessThan(0.05);
+    expect(Math.hypot(t.angVelLocal.x, t.angVelLocal.y, t.angVelLocal.z)).toBeLessThan(0.15);
+    expect(Math.hypot(t.velSim.x, t.velSim.z)).toBeLessThan(0.05);
     expect(t.simFaults).toBe(0);
   });
-  it('slides on its roof with 0.4-0.6 g of deceleration on gravel', () => {
+  // [M] the original's roof friction: the anchor impulse BodyK·T·(weight share along n) fires every 0.2 s or on the
+  // next contact (§2.9), i.e. ≈ BodyK·12 m/s² (gravel 0.92 → 1.13 g) plus the 2 m/s² free-flight damping (§2.10);
+  // v1.4's DEV-4 target of 0.4-0.6 g was a design guess
+  it('slides on its roof with 1.0-1.4 g of deceleration on gravel (original body solver)', () => {
     const world = createFlatWorld({ surface: 'gravel' });
     const c = new CarSim({ params: makeCarParams('awd_wrc', { tyreType: 2 }), world });
     c.reset({ pos: { x: 0, y: 1.0, z: 0 }, q: roof }, 0);
@@ -328,7 +362,7 @@ describe('§2.9 chassis collision, obstacles, W19 flip assist', () => {
     c.setForwardSpeed(10);
     run(c, 0.5, () => ctl());
     const v = Math.hypot(c.telemetry().velSim.x, c.telemetry().velSim.z);
-    inRange((10 - v) / 0.5 / 9.81, 0.4, 0.6);
+    inRange((10 - v) / 0.5 / 9.81, 1.0, 1.4);
   });
   it('flip assist: a stopped car on its side rights itself under throttle (both sides)', () => {
     for (const ang of [Math.PI / 2, -Math.PI / 2]) {

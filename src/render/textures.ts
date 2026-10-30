@@ -227,7 +227,33 @@ function paintLine(px: Uint8ClampedArray, W: number, H: number, u0: number, u1: 
   }
 }
 
-const ROAD_PAINTERS: Record<SurfaceId, RoadPainter> = {
+/** The surfaces with a painted road look of their own (the original ten). */
+type PaintedSurface = 'tarmac' | 'gravel' | 'gravelDeep' | 'mud' | 'snow' | 'ice' | 'grass' | 'sand' | 'cobbles' | 'water';
+
+/**
+ * Nearest-look STAND-INS for the appended original materials (rally-web ids 10..22): they share the painter and
+ * the cached texture of the named surface. Procedural roads only; the original stages' look comes from their
+ * track textures (track / effects builders replace these).
+ */
+const ROAD_STAND_IN: Readonly<Record<Exclude<SurfaceId, PaintedSurface>, PaintedSurface>> = {
+  wood: 'cobbles',
+  snowChunky: 'snow',
+  snowDeep: 'snow',
+  snowAsphalt: 'snow',
+  snowDitch: 'snow',
+  leaf: 'mud',
+  asphaltGrass: 'tarmac',
+  gravelGrass: 'gravel',
+  mudGrass: 'mud',
+  mudDitch: 'mud',
+  sandDeep: 'sand',
+  sandDark: 'sand',
+  sandDarkDeep: 'sand',
+};
+const paintedOf = (s: SurfaceId): PaintedSurface =>
+  (ROAD_STAND_IN as Partial<Record<SurfaceId, PaintedSurface>>)[s] ?? (s as PaintedSurface);
+
+const ROAD_PAINTERS: Record<PaintedSurface, RoadPainter> = {
   tarmac: {
     base: 0x45484d,
     tile: 12,
@@ -443,14 +469,15 @@ const ROAD_PAINTERS: Record<SurfaceId, RoadPainter> = {
 
 /** Road ribbon look for a surface (texture cached). */
 export function roadLook(surface: SurfaceId): RoadLook {
-  const p = ROAD_PAINTERS[surface] ?? ROAD_PAINTERS.tarmac;
-  const map = cached(`road:${surface}`, () => {
+  const look = paintedOf(surface);
+  const p = ROAD_PAINTERS[look] ?? ROAD_PAINTERS.tarmac;
+  const map = cached(`road:${look}`, () => {
     const W = 256, H = 512;
     const c = makeCanvas(W, H);
     if (!c) return null;
     const ctx = c.getContext('2d')!;
     const img = ctx.createImageData(W, H);
-    p.paint(img.data, W, H, new Rng(1234 + surface.length * 77));
+    p.paint(img.data, W, H, new Rng(1234 + look.length * 77));
     ctx.putImageData(img, 0, 0);
     const t = finishTexture(c, true, true, false);
     return t;

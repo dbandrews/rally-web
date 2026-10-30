@@ -207,13 +207,13 @@ describe('RaceController: §5.4 resets', () => {
     expect(race.drainEvents().filter((e) => e.type === 'reset')).toHaveLength(1);
   });
 
-  it('reset target never goes behind startS + 1', () => {
-    const { car, race, stage } = setup(makeLineStage({ startS: 10 }));
+  it('reset target never goes behind the valid range minimum + 1 (FUN_004b3e50 → FUN_0074d980(20, lo + 1))', () => {
+    const { car, race, stage } = setup(makeLineStage({ startS: 10, validRange: [4, 1000] }));
     race.startNow();
     cruise(car, race, 10, steps(0.5));
     race.requestReset('manual');
     for (let i = 0; i < steps(1); i++) race.fixedUpdate(DT, car.telemetry());
-    expect(-car.pos.z).toBeCloseTo(stage.startS + 1, 3);
+    expect(-car.pos.z).toBeCloseTo(stage.validRange[0] + 1, 3);
   });
 
   it('manual reset is ignored before the start, during countdown and after the finish', () => {
@@ -307,7 +307,7 @@ describe('RaceController: §5.4 resets', () => {
 });
 
 describe('RaceController: pacenotes, wrong way, ghost', () => {
-  it('§5.7: last passed note fires once, only within 20 m of the line, never replayed after a reset', () => {
+  it('§5.7: last passed note fires once, only spoken within 20 m of the line, never replayed after a reset', () => {
     const notes = [note(100, '4 right'), note(140, '3 left', { direction: 'left', severity: 3 }), note(200, '6 right')];
     const { car, race } = setup(makeLineStage({ startS: 10, pacenotes: notes }));
     race.startNow();
@@ -324,11 +324,11 @@ describe('RaceController: pacenotes, wrong way, ghost', () => {
     }
     ev2.push(...cruise(car, race, 20, steps(1)));
     expect(ev2.filter((e) => e.type === 'pacenote')).toEqual([]);
-    // off the line by > 20 m: the next note waits
+    // passed > 20 m off the line: marked played, not spoken, and not spoken later either (FUN_0074b620)
     const ev3 = cruise(car, race, 20, steps(2.6), 25); // to s ≈ 202 but 25 m off the line
     expect(ev3.filter((e) => e.type === 'pacenote')).toEqual([]);
     const ev4 = cruise(car, race, 1, 2, 0);
-    expect(ev4.filter((e) => e.type === 'pacenote').map((e) => (e as { note: { text: string } }).note.text)).toEqual(['6 right']);
+    expect(ev4.filter((e) => e.type === 'pacenote')).toEqual([]);
   });
 
   it('wrong way after 1 s against the spline, clears after driving the right way', () => {

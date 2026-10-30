@@ -9,7 +9,8 @@
  *  - bottom right: rev gauge with redline + speed (km/h) + gear (shift light) + boost bar; surface + tyre chip;
  *  - bottom left: status chips (camera, autopilot, time scale, transmission, voice);
  *  - centre: countdown / GO / FINISH / WRONG WAY, checkpoint popup; reset fade (opacity = race.fade).
- * Optional co-driver voice (speechSynthesis) on 'pacenote' events (toggle N or in the menu).
+ * Co-driver voice on 'pacenote' events (the original's samples, else speechSynthesis; on by default, toggle N or
+ * in the menu).
  *
  * REQUIRED EXPORTS (contract in src/core/types.ts IHud):
  *   class Hud implements IHud

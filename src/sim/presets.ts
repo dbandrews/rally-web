@@ -1,5 +1,6 @@
 /**
- * src/sim/presets.ts — OWNED BY THE SIM BUILDER.
+ * src/sim/presets.ts — tuning presets + the original cars' handling presets (car data: OWNED BY THE CARS BUILDER in
+ * the asset-port phase; the 'arcade-drift' / class-4 presets were designed by the sim builder).
  *
  * Built-in, NON-default tuning presets (docs/MECHANICS_SPEC.md §6.1, v1.3). The shipped parameters
  * (params.ts ARCHETYPE_PARAMS) are the original's and stay the default; a preset is a named override set that
@@ -10,13 +11,18 @@
  *   kind 'deviation': deliberately NOT the original. Labelled DEVIATION in the panel.
  *   kind 'original':  a parameter set from the original's car data that the three archetypes do not cover.
  *
+ * The per-car presets ('orig-car-NN', one per ORIGINAL car) are also the DEFAULT handling of a selected original
+ * car (RaceSelection.car, main.ts): origCarParams(name, keep) = that car's drive archetype + its exact data.
+ *
  * REQUIRED EXPORTS:
  *   TUNING_PRESETS: readonly TuningPreset[]
  *   presetOverrides(preset, archetype): DeepPartial<CarParams>     the merged overrides for that archetype
  *   presetCarParams(preset, archetype, keep?): CarParams            shipped params of the target archetype + overrides
+ *   origCarPreset(name), origCarArchetype(name), origCarParams(name, keep?)   the original car of RaceSelection.car
  */
 import { deepClone, deepMergeInto } from '../core/paths';
 import type { ArchetypeId, CarParams, DeepPartial } from '../core/types';
+import { ORIG_CARS, origCarById } from './origCars';
 import { makeCarParams } from './params';
 
 export type PresetKind = 'deviation' | 'original';
@@ -30,6 +36,8 @@ export interface TuningPreset {
   description: string;
   /** Switch to this archetype first (presets that model one car class). */
   archetype?: ArchetypeId;
+  /** Original car (ORIG_CAR_IDS name) whose data this preset carries. */
+  car?: string;
   /** Overrides for every archetype. */
   all?: DeepPartial<CarParams>;
   /** Further overrides per archetype, merged after `all`. */
@@ -97,7 +105,86 @@ const CLASS4_AWD: TuningPreset = {
   },
 };
 
-export const TUNING_PRESETS: readonly TuningPreset[] = Object.freeze([ARCADE_DRIFT, CLASS4_AWD]);
+/**
+ * The original cars' real display names (LocaleEnglish localestrings.str, the `name` of the built
+ * public/assets/cars/<Name>/cars.json, tools/assets/parts/cars.py), by ORIG_CAR_IDS folder name. Static so the
+ * tuning panel can label the per-car presets without the assets; tests/sim/presets.test.ts checks them against the
+ * built cars.json when the assets are present.
+ */
+export const ORIG_CAR_NAMES: Readonly<Record<string, string>> = Object.freeze({
+  Astra: 'Opel Astra T16 4x4',
+  AudiS1: 'Audi Quattro S1',
+  AudiS1HC: 'Audi Quattro S1 Hill Climb',
+  Beetle: 'Volkswagen Beetle',
+  CitroenXsara: 'Citroen Xsara Kit Car',
+  CitroenXsaraRC: 'Citroen Xsara Rallycross',
+  Corolla: 'Toyota Corolla Ice Racing',
+  DeltaIntergrale: 'Lancia Delta Integrale',
+  DeltaS4: 'Lancia Delta S4',
+  Escudo: 'Suzuki Grand Vitara Hill Climb',
+  FordEscort: 'Ford Escort Cosworth Rally',
+  FordFocus: 'Ford Focus Rallycross',
+  FordFocusCosworth: 'Ford Focus Cosworth',
+  FordRS200: 'Ford RS200',
+  ImprezaHC: 'Subaru Impreza Hill Climb',
+  ImprezaWRX: 'Subaru Impreza WRX',
+  Lancer: 'Mitsubishi Lancer EVO 6.5b',
+  LancerEVO: 'Mitsubishi Lancer EVO VI',
+  Metro6R4: 'Metro 6R4',
+  Micra: 'Nissan Micra',
+  NissanSkyline: 'Nissan Skyline',
+  Peugeot205: 'Peugeot 205 T16 Rally',
+  Peugeot206: 'Peugeot 206',
+  Peugeot306: 'Peugeot 306 Ice Racing',
+  Peugeot405: 'Peugeot 405 T16 Hill Climb',
+  Renault5: 'Renault 5 Turbo',
+  Saab93: 'Saab 9-3 T16 4x4',
+  SaabViggen: 'Saab 93 Viggen Hill Climb',
+  ToyotaTacoma: 'Toyota Tacoma Hill Climb',
+});
+
+/** Archetype that models each original drive layout (0 FWD, 1 RWD, 2 AWD). */
+const DRIVE_ARCHETYPE: Readonly<Record<0 | 1 | 2, ArchetypeId>> = Object.freeze({ 0: 'fwd_hatch', 1: 'rwd_classic', 2: 'awd_wrc' });
+
+/**
+ * One TuningPreset per ORIGINAL CAR (29): the exact per-car data from the original's PhysicsCar.con, Templates.con
+ * wheel bundles and Car_<Name>.col hull box (src/sim/origCars.ts) on the archetype of its drive layout. Id
+ * 'orig-car-NN' (ORIG_CARS order), label = the car's real display name and drive layout ('Subaru Impreza WRX (AWD)',
+ * ORIG_CAR_NAMES; AGENTS.md: real cars, real names), `car` = its ORIG_CAR_IDS folder name.
+ */
+const ORIG_CAR_PRESETS: readonly TuningPreset[] = ORIG_CARS.map((car, i) => {
+  const archetype = DRIVE_ARCHETYPE[car.drive];
+  const driveName = car.drive === 0 ? 'FWD' : car.drive === 1 ? 'RWD' : 'AWD';
+  const gears = car.gearRatio.length - 1;
+  const overrides: DeepPartial<CarParams> = {
+    mass: car.mass,
+    torqueScale: car.torqueScale,
+    turboSize: car.turboSize,
+    nGears: gears,
+    gearRatio: [...car.gearRatio],
+    gearSpeed: new Array(gears).fill(0),
+    wheelFL: { ...car.wheelFL },
+    wheelRL: { ...car.wheelRL },
+    hullFrontZ: car.hullFrontZ,
+    hullRearZ: car.hullRearZ,
+    hullBottomY: car.hullBottomY,
+  };
+  return {
+    id: `orig-car-${String(i).padStart(2, '0')}`,
+    label: `${ORIG_CAR_NAMES[car.archive] ?? car.archive} (${driveName})`,
+    kind: 'original' as const,
+    car: car.archive,
+    description:
+      `Original car data of ${car.archive}: ${driveName}, ${gears}-speed, mass ${car.mass} kg, torqueScale ${car.torqueScale}` +
+      (car.turboSize === 0 ? ', no turbo' : '') +
+      `, wheelbase ${(car.wheelFL.z - car.wheelRL.z).toFixed(3)} m` +
+      (car.events.length ? `. Runs the original's event(s): ${car.events.join(', ')}.` : '.'),
+    archetype,
+    perArchetype: { [archetype]: overrides } as Partial<Record<ArchetypeId, DeepPartial<CarParams>>>,
+  };
+});
+
+export const TUNING_PRESETS: readonly TuningPreset[] = Object.freeze([ARCADE_DRIFT, CLASS4_AWD, ...ORIG_CAR_PRESETS]);
 
 /** The merged overrides a preset applies to `archetype` (a fresh object). */
 export function presetOverrides(preset: TuningPreset, archetype: ArchetypeId): DeepPartial<CarParams> {
@@ -117,4 +204,25 @@ export function presetCarParams(preset: TuningPreset, archetype: ArchetypeId, ke
   const p = makeCarParams(target, keep);
   deepMergeInto(p, presetOverrides(preset, target));
   return p;
+}
+
+/** The per-car preset of an original car (ORIG_CAR_IDS name), or undefined. */
+export function origCarPreset(name: string | null | undefined): TuningPreset | undefined {
+  return name ? ORIG_CAR_PRESETS.find((p) => p.car === name) : undefined;
+}
+
+/** Handling archetype (= fallback visual) of an original car: the archetype of its drive layout. */
+export function origCarArchetype(name: string | null | undefined): ArchetypeId | undefined {
+  const c = origCarById(name);
+  return c ? DRIVE_ARCHETYPE[c.drive] : undefined;
+}
+
+/**
+ * The DEFAULT parameters of an original car (RaceSelection.car): its drive archetype's shipped parameters, then
+ * `keep` (race-selection choices), then the car's exact data. Throws for an unknown name.
+ */
+export function origCarParams(name: string, keep?: DeepPartial<CarParams>): CarParams {
+  const preset = origCarPreset(name);
+  if (!preset || !preset.archetype) throw new Error(`unknown original car '${name}'`);
+  return presetCarParams(preset, preset.archetype, keep);
 }

@@ -51,11 +51,13 @@ describe('pacenote caller', () => {
     expect(c.upcoming(0, 2).map((n) => n.s)).toEqual([100, 200]);
   });
 
-  it('lateral gate: |lateral| ≥ 20 m holds the note until back on the road', () => {
+  it('lateral gate: a note passed ≥ 20 m off the line is marked played and lost (FUN_0074b620)', () => {
     const c = new PacenoteCaller();
-    c.reset([note(100)]);
+    c.reset([note(100), note(200)]);
     expect(c.update(110, 20)).toBeNull();
-    expect(c.update(115, -19.9)?.s).toBe(100);
+    expect(c.isPlayed(0)).toBe(true);
+    expect(c.update(115, -19.9)).toBeNull();
+    expect(c.update(205, -19.9)?.s).toBe(200);
   });
 
   it('markPlayedUpTo blocks replays', () => {

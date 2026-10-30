@@ -1,7 +1,9 @@
 /**
  * src/main.ts — ARCHITECT-OWNED. Builders must not edit; request changes instead.
  *
- * Wiring: URL params → world (buildStage) → car sim → renderer → race / input / UI → fixed-step loop.
+ * Wiring: URL params → world (buildStage + attachOriginalWorld) → car sim → renderer → race / input / UI →
+ * fixed-step loop. Original assets (public/assets/, docs/ASSETS.md) are optional: `?orig=0` or no manifest →
+ * the procedural world and visuals.
  *
  * Per rendered frame (requestAnimationFrame):
  *   1. tick = loop.advance(wall dt)                    §1.2 accumulator (0.2 s clamp, timeScale, pause)
@@ -12,10 +14,19 @@
  *                 ?? autopilot.update()  (if on)
  *                 ?? filter.update(raw)  (gear edges delivered on ONE substep)
  *        car.step(controls, DT); race.fixedUpdate(DT, telemetry)
- *   4. render: interpolate prev/cur physics pose with alpha (§1.2 [D]) → renderer.update(); UI update.
+ *   4. render: the car update's backfire / blow-out flags (src/game/carFlags.ts, one source for the pipe sounds and
+ *      flames) → interpolate prev/cur physics pose with alpha (§1.2 [D]) → renderer.update(); UI + audio update.
+ *
+ * Car: `?car=` (archetype or original car); without it, the original's default car (constants.ts ORIG_DEFAULT_CAR)
+ * when the original cars are built, else the awd_wrc archetype car. An original car runs its own handling preset
+ * (presets.ts) and chassis hull (CarSimOptions.origCar).
+ *
+ * Stage: `?stage=`; without it, the first original stage whose render + collision parts are built (PORTED_ORDER:
+ * corsica-1-f), else the first procedural stage. The menu lists the built original stages before the procedural ones.
  */
 import './style.css';
-import { ARCHETYPE_IDS, ARCHETYPES, CAMERA_MODES, DT, PHYSICS_HZ, TYRE_NAMES, neutralRawInput, parkedControls } from './core/constants';
+import { ARCHETYPE_IDS, ARCHETYPES, CAMERA_MODES, DT, ORIG_CAR_IDS, PHYSICS_HZ, TYRE_NAMES, neutralRawInput, parkedControls } from './core/constants';
+import { getAssetManifest } from './core/assets';
 import { FixedStepLoop } from './core/loop';
 import { clamp, copy3, lerp3, qCopy, qSlerp, type Quat, type V3 } from './core/math';
 import { deepMergeInto, getPath, partialFromPath, setPath, splitPath } from './core/paths';
@@ -25,6 +36,8 @@ import type {
   ArchetypeId,
   ArchetypeInfo,
   CameraMode,
+  CarInfo,
+  CarListEntry,
   CarParams,
   CarRenderState,
   CarTelemetry,
@@ -33,6 +46,7 @@ import type {
   FrameStats,
   GameTunables,
   IMenuHost,
+  IRaceController,
   ITuningHost,
   LaunchOptions,
   LoadStageOptions,
@@ -52,21 +66,27 @@ import type {
 import { installTestApi, type TestApiHost } from './debug/testApi';
 
 // builder modules
-import { AudioEngine } from './audio/audio';
+import { AudioEngine, rendererListener } from './audio/audio';
 import { TelemetryOverlay } from './debug/overlay';
 import { TuningPanel } from './debug/tuningPanel';
 import { Autopilot } from './game/autopilot';
+import { CarFlagSource } from './game/carFlags';
 import { runOutControls } from './game/driving';
+import { normalizeCarSelection, originalStagesFirst, withDefaultOrigCar } from './game/selection';
 import { RaceController, START_GRID_BACK_M } from './game/race';
 import { isTypingTarget } from './input/bindings';
 import { InputManager } from './input/input';
-import { GameRenderer, makeCameraTuning } from './render/renderer';
+import { loadCarInfo } from './render/orig/car';
+import { GameRenderer } from './render/renderer';
 import { CarSim } from './sim/car';
 import { InputFilter, makeInputFilterConfig } from './sim/inputFilter';
 import { makeCarParams, makeSurfaceTable } from './sim/params';
+import { origCarArchetype, origCarParams } from './sim/presets';
+import { origCarById } from './sim/origCars';
 import { Hud } from './ui/hud';
 import { Menu } from './ui/menu';
-import { toast } from './ui/settings';
+import { toast, uiSettings } from './ui/settings';
+import { attachOriginalWorld } from './world/orig';
 import { buildStage, listStages } from './world/stages';
 
 const PLAYER_ID = 'player';
@@ -74,6 +94,8 @@ const PLAYER_ID = 'player';
 const GHOST_ID = 'ghost';
 const TUNABLE_ROOTS = ['car', 'input', 'camera', 'surfaces', 'loop'] as const;
 type TunableRoot = (typeof TUNABLE_ROOTS)[number];
+/** Race events the test API keeps between two getRaceEvents() calls. */
+const API_EVENTS_MAX = 1000;
 /** Extra setParam / getParam path (not part of GameTunables): the autopilot's target-speed scale. */
 const AUTOPILOT_AGGRESSION = 'autopilot.aggression';
 
@@ -86,8 +108,12 @@ function parseLaunchOptions(search: string): LaunchOptions {
     if (v === null) return def;
     return !(v === '0' || v === 'false' || v === 'no' || v === 'off');
   };
+  // ?car=<archetype> or ?car=<original car name> (ORIG_CAR_IDS, case-insensitive) → its drive archetype + origCar
   const carQ = q.get('car');
-  const car = (ARCHETYPE_IDS as readonly string[]).includes(carQ ?? '') ? (carQ as ArchetypeId) : 'awd_wrc';
+  const origCar = carQ ? (ORIG_CAR_IDS.find((n) => n.toLowerCase() === carQ.toLowerCase()) ?? null) : null;
+  const car = origCar
+    ? (origCarArchetype(origCar) ?? 'awd_wrc')
+    : (ARCHETYPE_IDS as readonly string[]).includes(carQ ?? '') ? (carQ as ArchetypeId) : 'awd_wrc';
   let tyre: TyreType | null = null;
   const tq = q.get('tyre');
   if (tq !== null && tq !== '') {
@@ -112,6 +138,7 @@ function parseLaunchOptions(search: string): LaunchOptions {
   return {
     stage: q.get('stage'),
     car,
+    origCar,
     tyre,
     seed,
     cam,
@@ -164,18 +191,36 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   private lastResetCount = -1;
   private justReset = true;
   private events: RaceEvent[] = [];
+  /** Race events for the test API (getRaceEvents drains them; the latest API_EVENTS_MAX are kept). */
+  private apiEvents: RaceEvent[] = [];
   private frames = 0;
   private physicsSteps = 0;
   private fps = 60;
   private loading = false;
+  /** Bumped by every loadSelection: an older load that resumes after a newer one started gives up. */
+  private loadToken = 0;
   /** Largest impact impulse over the substeps since the last rendered frame (FrameContext.impactImpulseMax). */
   private frameImpact = 0;
   /** The ghost car mesh is in the renderer (added while the race controller has a ghost pose). */
   private ghostInRenderer = false;
+  /** Original car the current CarSim was built for (RaceSelection.car; tuned params are kept only for the same car). */
+  private simCar: string | undefined;
+  /** `?car=` was given: the URL's choice stands (no default original car). */
+  private readonly carFromUrl: boolean;
+  /** `?stage=` named a known stage: the URL's choice stands (no default original stage). */
+  private readonly stageFromUrl: boolean;
+  /** The stage catalogue of the menu and the test API (IMenuHost.listStages): the built original stages first. */
+  private stageList: StageListEntry[] = listStages();
+  /** The player car's backfire / blow-out flags, once per rendered frame (audio + effects share them). */
+  private carFlags = new CarFlagSource(1);
+  /** The original cars for the menu (IMenuHost.listCars): availability from manifest.cars, names from cars.json. */
+  private carList: CarListEntry[] = ORIG_CAR_IDS.map((id) => this.carEntry(id, id, false));
+  private carListReady: Promise<void> = Promise.resolve();
   private readonly api = installTestApi(this);
 
   constructor(opts: LaunchOptions) {
     this.opts = opts;
+    this.carFromUrl = new URLSearchParams(window.location.search).has('car');
     this.autopilotOn = opts.autopilot;
     this.loop.timeScale = opts.timeScale;
     const gameEl = document.getElementById('game')!;
@@ -184,25 +229,38 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     this.renderer = new GameRenderer(gameEl);
     this.input = new InputManager(window);
     this.hud = new Hud(hudEl);
+    // The first user gesture starts the AudioContext (browser autoplay rules). Registered BEFORE the Menu and in the
+    // capture phase: the menu consumes its keys in the capture phase (stopImmediatePropagation), and window capture
+    // listeners run in registration order, so a keyboard-only player's first menu key starts the audio (menu meme
+    // sounds, countdown). Kept until the context runs: a key that grants no user activation (Esc) retries next time.
+    const resumeAudio = () => {
+      this.audio.resume();
+      if (!this.audio.started) return;
+      window.removeEventListener('keydown', resumeAudio, true);
+      window.removeEventListener('pointerdown', resumeAudio, true);
+    };
+    window.addEventListener('keydown', resumeAudio, true);
+    window.addEventListener('pointerdown', resumeAudio, true);
     this.menu = new Menu(overlayEl, this);
     this.overlay = new TelemetryOverlay(overlayEl);
     if (opts.cam) this.renderer.setCameraMode(opts.cam);
     this.audio.setEnabled(opts.audio);
-    const stages = listStages();
-    const stageId = opts.stage && stages.some((s) => s.id === opts.stage) ? opts.stage : stages[0].id;
+    const stages = this.stageList;
+    this.stageFromUrl = !!opts.stage && stages.some((s) => s.id === opts.stage);
+    const stageId = this.stageFromUrl ? opts.stage! : stages[0].id;
     const entry = stages.find((s) => s.id === stageId)!;
     this.selection = {
       stageId,
       archetype: opts.car,
+      ...(opts.origCar ? { car: opts.origCar } : {}),
       tyre: opts.tyre ?? entry.defaultTyre,
       transmission: opts.transmission,
       setup: {},
       steerSensFast: true,
       seed: opts.seed,
     };
-    const resumeAudio = () => this.audio.resume();
-    window.addEventListener('keydown', resumeAudio, { once: true });
-    window.addEventListener('pointerdown', resumeAudio, { once: true });
+    // 3-D audio listener = the render camera (CamListener.con)
+    this.audio.setListenerSource(() => rendererListener(this.renderer));
     // M: mute toggle (UI_KEYS.mute; main.ts owns the AudioEngine)
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'KeyM' || e.repeat || e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
@@ -223,7 +281,11 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
 
   async init(): Promise<void> {
     const start = !this.opts.menu;
+    this.carListReady = this.loadCarList(); // in parallel with the first stage load
+    await this.defaultToOriginalStage();
+    await this.defaultToOriginalCar();
     await this.loadSelection(this.selection, { countdown: start && this.opts.countdown });
+    await this.carListReady;
     if (start && !this.opts.countdown) this.race.startNow();
     this.tuning = new TuningPanel(this);
     this.tuning.setOpen(this.opts.tune);
@@ -234,37 +296,120 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
 
   // ----------------------------------------------------------------------------------------- loading
 
+  /**
+   * With the original stages built (manifest: their `track` render part and `collision` part) the menu lists them
+   * first, in the ported catalogue order (PORTED_ORDER; its first, corsica-1-f, is also the first entry of the
+   * original's Misc/level/track.lst, "Corsica 1"), then the procedural class stages; without `?stage=` the game
+   * starts on the first of them.
+   * Without assets (or `?orig=0`) the procedural catalogue and its first stage stay.
+   */
+  private async defaultToOriginalStage(): Promise<void> {
+    const list = originalStagesFirst(listStages(), await getAssetManifest());
+    if (!list) return;
+    this.stageList = list;
+    if (this.stageFromUrl) return;
+    this.selection = { ...this.selection, stageId: list[0].id, tyre: this.opts.tyre ?? list[0].defaultTyre };
+  }
+
+  /**
+   * With the original cars built and no `?car=`, the game starts in the original's default car
+   * (constants.ts ORIG_DEFAULT_CAR) instead of the procedural archetype car; without assets (or `?orig=0`) the
+   * archetype car stays.
+   */
+  private async defaultToOriginalCar(): Promise<void> {
+    if (this.carFromUrl || this.selection.car) return;
+    this.selection = withDefaultOrigCar(this.selection, await getAssetManifest(), this.carFromUrl);
+  }
+
   private async loadSelection(sel: RaceSelection, o: { countdown: boolean }): Promise<void> {
+    sel = normalizeCarSelection(sel);
+    // loads are async (original assets): when calls overlap the LATEST request wins; an older call that
+    // resumes after a newer one started returns without touching the state
+    const token = ++this.loadToken;
     this.loading = true;
     try {
-      const built = buildStage(sel.stageId, sel.seed);
+      // original collision world when its assets are built (src/world/orig; unchanged otherwise, docs/ASSETS.md)
+      const built = await attachOriginalWorld(buildStage(sel.stageId, sel.seed));
+      if (token !== this.loadToken) return;
       this.stage = built.stage;
       this.world = built.world;
-      const keep = this.car && this.car.params.archetype === sel.archetype ? (this.car.params as CarParams) : null;
-      const params = keep ?? makeCarParams(sel.archetype);
-      deepMergeInto(params, {
-        tyreType: sel.tyre,
-        transmission: sel.transmission,
-        setup: sel.setup,
-        steerSensFast: sel.steerSensFast,
-      });
-      this.car = new CarSim({ id: PLAYER_ID, params, world: this.world, surfaces: this.surfaces, seed: sel.seed });
-      await this.renderer.loadStage(this.stage);
+      this.makeCar(sel);
+      // the player car's visual loads alongside the stage, and the race begins only once both are in: the original
+      // loads the car with the race, so no procedural stand-in is ever seen (addCar settles once the original
+      // visual is attached or the fallback decided; frames stay off while `loading`)
+      const stageLoad = this.renderer.loadStage(this.stage);
       this.renderer.removeCar(GHOST_ID);
       this.ghostInRenderer = false;
       this.renderer.removeCar(PLAYER_ID);
-      this.renderer.addCar(PLAYER_ID, sel.archetype, { player: true });
-      this.race.begin(this.stage, this.car, { countdown: o.countdown, world: this.world });
-      this.filter.reset();
-      this.autopilot.reset();
-      this.loop.reset();
-      this.pendingGearUp = this.pendingGearDown = false;
-      this.snapInterpolation();
-      this.selection = { ...sel, setup: { ...sel.setup } };
-      this.tuning?.refresh();
+      const carLoad = this.renderer.addCar(PLAYER_ID, sel.archetype, { player: true, origCar: sel.car });
+      await Promise.all([stageLoad, carLoad]);
+      if (token !== this.loadToken) return; // a newer load owns the renderer / stage / car now
+      this.beginRace(sel, o);
     } finally {
-      this.loading = false;
+      if (token === this.loadToken) this.loading = false;
     }
+  }
+
+  /** A fresh CarSim for `sel` on the loaded world. */
+  private makeCar(sel: RaceSelection): void {
+    // tuned parameters survive a reload of the same car; an original car starts from its own data (presets.ts)
+    const same = this.car && this.car.params.archetype === sel.archetype && this.simCar === sel.car;
+    const keep = same ? (this.car.params as CarParams) : null;
+    const params = keep ?? (sel.car ? origCarParams(sel.car) : makeCarParams(sel.archetype));
+    this.simCar = sel.car;
+    deepMergeInto(params, {
+      tyreType: sel.tyre,
+      transmission: sel.transmission,
+      setup: sel.setup,
+      steerSensFast: sel.steerSensFast,
+    });
+    // an original car probes with its own Car_<Name>.col hull (CarSimOptions.origCar); the player is car 0
+    this.car = new CarSim({ id: PLAYER_ID, params, world: this.world, surfaces: this.surfaces, seed: sel.seed, origCar: sel.car ?? null, slotBase: 0 });
+    this.carFlags = new CarFlagSource(sel.seed);
+  }
+
+  /** A new race of the loaded stage with the current car (placed at the start, parked; countdown or idle). */
+  private beginRace(sel: RaceSelection, o: { countdown: boolean }): void {
+    // best times / ghost keyed by the original car (IRaceController.begin origCar; race builder)
+    const beginOpts: Parameters<IRaceController['begin']>[2] = { countdown: o.countdown, world: this.world, origCar: sel.car };
+    this.race.begin(this.stage, this.car, beginOpts);
+    this.filter.reset();
+    this.autopilot.reset();
+    this.autopilot.world = this.world; // obstacle avoidance (the original stages' object proxies)
+    this.loop.reset();
+    this.pendingGearUp = this.pendingGearDown = false;
+    this.snapInterpolation();
+    this.selection = { ...sel, setup: { ...sel.setup } };
+    this.tuning?.refresh();
+  }
+
+  /**
+   * A race on the LOADED stage (menu Restart / Backspace, or Start with the same stage and seed): a fresh car and race
+   * on the same world, stage view and textures instead of a full loadSelection (which re-fetched and re-uploaded
+   * 250-420 files per ported stage). The car visual is swapped only when the car changed. The collision world keeps
+   * its per-slot face cache, as the original does on a restart (src/world/orig/world.ts resetFaceCache); the renderer
+   * clears the last run's particles, skid marks and emitters. `selection` always describes the loaded stage and car
+   * (loadSelection / setArchetype / setParam keep it in step).
+   */
+  private async restartInPlace(sel: RaceSelection): Promise<void> {
+    const carChanged = sel.archetype !== this.car.params.archetype || sel.car !== this.simCar;
+    if (carChanged) {
+      // a new car: its visual is in before the race begins, as in loadSelection (no procedural stand-in)
+      const token = ++this.loadToken;
+      this.loading = true;
+      try {
+        this.renderer.removeCar(GHOST_ID);
+        this.ghostInRenderer = false;
+        this.renderer.removeCar(PLAYER_ID);
+        await this.renderer.addCar(PLAYER_ID, sel.archetype, { player: true, origCar: sel.car });
+        if (token !== this.loadToken) return; // a newer load owns the renderer / car now
+      } finally {
+        if (token === this.loadToken) this.loading = false;
+      }
+    }
+    this.makeCar(sel);
+    this.beginRace(sel, { countdown: true });
+    this.renderer.resetStageEffects();
   }
 
   private snapInterpolation(): void {
@@ -324,7 +469,7 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     } else if (!this.race.isControllable()) {
       // after the finish: a progressive run-out along the road instead of a full handbrake at speed
       const st = this.race.state;
-      controls = st.phase === 'finished' && !st.resetting ? runOutControls(this.car.telemetry(), this.stage, st) : parkedControls();
+      controls = st.phase === 'finished' && !st.resetting ? runOutControls(this.car.telemetry(), this.stage, st, this.world) : parkedControls();
     } else if (this.autopilotOn) {
       controls = this.autopilot.update(DT, this.car.telemetry(), this.stage, this.race.state);
     } else {
@@ -349,26 +494,35 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     const tel = this.car.telemetry();
     if (tel.resetCount !== this.lastResetCount) this.snapInterpolation(); // reset outside the step loop
     this.race.frameUpdate(frameDt, tel);
-    for (const e of this.race.drainEvents()) this.events.push(e);
+    for (const e of this.race.drainEvents()) {
+      this.events.push(e);
+      this.apiEvents.push(e);
+    }
+    if (this.apiEvents.length > API_EVENTS_MAX) this.apiEvents.splice(0, this.apiEvents.length - API_EVENTS_MAX);
     const posSim = lerp3(this.prevPos, tel.posSim, alpha);
     const qSim = qSlerp(this.prevQuat, tel.quatSim, alpha);
+    // the car update's backfire / blow-out flags (one source for the pipe sounds and flames); frozen while paused
+    const carFlags = this.carFlags.update(this.loop.paused ? 0 : frameDt, tel);
     const cars: CarRenderState[] = [
       {
         id: PLAYER_ID,
         archetype: this.car.params.archetype,
+        ...(this.simCar ? { origCar: this.simCar } : {}),
         ghost: false,
         player: true,
         pos: mirror(posSim),
         quat: mirrorQuat(qSim),
         telemetry: tel,
         justReset: this.justReset,
+        carFlags,
       },
     ];
     this.justReset = false;
     // best-run ghost (recorded by the race controller; shown while it has a pose for the race clock)
     const ghost = this.opts.ghost ? this.race.ghostRenderState(tel, alpha) : null;
     if (ghost && !this.ghostInRenderer) {
-      this.renderer.addCar(GHOST_ID, ghost.archetype, { ghost: true, player: false });
+      // not awaited: the ghost's procedural stand-in stays hidden until its original visual is in
+      void this.renderer.addCar(GHOST_ID, ghost.archetype, { ghost: true, player: false, origCar: ghost.origCar });
       this.ghostInRenderer = true;
     } else if (!ghost && this.ghostInRenderer) {
       this.renderer.removeCar(GHOST_ID);
@@ -391,6 +545,9 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       fps: this.fps,
       impactImpulseMax: Math.max(this.frameImpact, tel.impactImpulse),
       audioEnabled: this.audio.enabled,
+      // the player car's original car (per-car engine / turbo patches, research/formats/sound.md §4)
+      ...(this.simCar ? { origCar: this.simCar } : {}),
+      carFlags,
     };
     this.hud.update(ctx);
     this.menu.update(ctx);
@@ -408,14 +565,41 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   // ----------------------------------------------------------------------------------------- IMenuHost
 
   listStages(): StageListEntry[] {
-    return listStages();
+    return this.stageList.map((e) => ({ ...e }));
   }
   listArchetypes(): ArchetypeInfo[] {
     return ARCHETYPE_IDS.map((id) => ({ ...ARCHETYPES[id] }));
   }
+  /** The 29 original cars (ORIG_CAR_IDS order), names from the built cars.json (LocaleEnglish), else the id. */
+  listCars(): CarListEntry[] {
+    return this.carList.map((c) => ({ ...c }));
+  }
+  private carEntry(id: string, name: string, available: boolean): CarListEntry {
+    const drive = origCarById(id)?.drive ?? 2;
+    return { id, name, archetype: origCarArchetype(id) ?? 'awd_wrc', drive: drive === 0 ? 'FWD' : drive === 1 ? 'RWD' : 'AWD', available };
+  }
+  /** Availability (manifest.cars) and display names (cars/<Name>/cars.json); silent without assets. */
+  private async loadCarList(): Promise<void> {
+    const m = await getAssetManifest();
+    if (!m) return;
+    const built = new Set(Object.entries(m.carParts).filter(([, parts]) => parts.includes('cars')).map(([n]) => n));
+    this.carList = await Promise.all(
+      ORIG_CAR_IDS.map(async (id) => {
+        if (!built.has(id)) return this.carEntry(id, id, false);
+        const info = await loadCarInfo(id).catch(() => null);
+        return this.carEntry(id, info?.name ?? id, info !== null);
+      }),
+    );
+  }
   async startRace(sel: RaceSelection): Promise<void> {
     this.menu.hide();
     this.loop.paused = false;
+    sel = normalizeCarSelection(sel);
+    // the loaded stage again: no reload (a load in flight takes the full path, whose token makes the latest win)
+    if (!this.loading && this.stage && sel.stageId === this.selection.stageId && sel.seed === this.selection.seed) {
+      await this.restartInPlace(sel);
+      return;
+    }
     await this.loadSelection(sel, { countdown: true });
   }
   async restart(): Promise<void> {
@@ -511,19 +695,23 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     this.car.setParams(
       makeCarParams(id, { tyreType: p.tyreType, transmission: p.transmission, setup: { ...p.setup }, steerSensFast: p.steerSensFast }),
     );
+    // an archetype switch (tuning panel) leaves the original car: the archetype car with its procedural visual
     this.selection.archetype = id;
+    delete this.selection.car;
+    this.simCar = undefined;
+    this.car.setOrigCar(null); // the archetype's §3.4 box hull
     this.renderer.removeCar(PLAYER_ID);
-    this.renderer.addCar(PLAYER_ID, id, { player: true });
+    void this.renderer.addCar(PLAYER_ID, id, { player: true }); // an archetype car: settles at once
     this.tuning?.refresh();
   }
 
   resetToOriginal(): void {
     const p = this.car.params;
-    this.car.setParams(
-      makeCarParams(p.archetype, { tyreType: p.tyreType, transmission: p.transmission, setup: { ...p.setup }, steerSensFast: p.steerSensFast }),
-    );
+    const keep = { tyreType: p.tyreType, transmission: p.transmission, setup: { ...p.setup }, steerSensFast: p.steerSensFast };
+    // an original car resets to its own data (presets.ts origCarParams), an archetype car to the archetype's
+    this.car.setParams(this.simCar ? origCarParams(this.simCar, keep) : makeCarParams(p.archetype, keep));
     this.filter.setConfig(makeInputFilterConfig());
-    this.renderer.setCameraTuning(makeCameraTuning());
+    this.renderer.setCameraTuning(this.renderer.defaultCameraTuning()); // §5.3 + the player car's own CarCamera
     deepMergeInto(this.surfaces, makeSurfaceTable());
     this.car.setSurfaces(this.surfaces);
     this.loop.timeScale = 1;
@@ -630,19 +818,24 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     this.snapInterpolation();
   }
   async loadStage(id: string, o: LoadStageOptions): Promise<void> {
-    const entry = listStages().find((e) => e.id === id);
+    const entry = this.stageList.find((e) => e.id === id);
     if (!entry) throw new Error(`unknown stage '${id}'`);
+    // o.origCar picks an original car (its archetype replaces o.car); o.car alone picks the archetype car
+    const base = this.getSelection();
+    if (o.origCar !== undefined || o.car !== undefined) delete base.car;
     const sel: RaceSelection = {
-      ...this.getSelection(),
+      ...base,
+      ...(o.origCar ? { car: o.origCar } : {}),
       stageId: id,
-      archetype: o.car ?? this.selection.archetype,
+      archetype: (o.origCar ? origCarArchetype(o.origCar) : undefined) ?? o.car ?? this.selection.archetype,
       tyre: o.tyre ?? (id === this.selection.stageId ? this.selection.tyre : entry.defaultTyre),
       seed: o.seed ?? this.selection.seed,
       transmission: o.transmission ?? this.selection.transmission,
     };
     this.menu.hide();
     await this.loadSelection(sel, { countdown: o.countdown ?? false });
-    this.render(0, 0, 0);
+    // a load superseded by a newer one returns early: no frame of the half-loaded newer stage (it renders when done)
+    if (!this.loading) this.render(0, 0, 0);
   }
   setCamera(mode: number | CameraMode): void {
     const m = typeof mode === 'number' ? CAMERA_MODES[mode] : mode;
@@ -655,7 +848,8 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   }
   probe(): ProbeInfo {
     const t = this.car.telemetry();
-    const groundY = this.world.heightAt(t.posSim.x, t.posSim.z);
+    // the ground level at the car's own height (yHint): under an overpass the road below, not the deck
+    const groundY = this.world.heightAt(t.posSim.x, t.posSim.z, t.posSim.y);
     const pr = this.stage.project(t.pos);
     const q = t.quat;
     // car forward = local -Z rotated by the THREE quaternion; up-vector y = 1 - 2(x² + z²)
@@ -673,6 +867,19 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       upY: 1 - 2 * (q.x * q.x + q.z * q.z),
       headingErrDeg: (Math.acos(clamp(dot, -1, 1)) * 180) / Math.PI,
       speedKmh: t.speedKmh,
+    };
+  }
+  drainApiEvents(): RaceEvent[] {
+    const out = this.apiEvents;
+    this.apiEvents = [];
+    return out;
+  }
+  carInfo(): CarInfo {
+    return {
+      archetype: this.car.params.archetype,
+      origCar: this.simCar ?? null,
+      hullCar: this.car.hullCar,
+      voice: uiSettings.voice,
     };
   }
   frameStats(): FrameStats {

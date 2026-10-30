@@ -1,28 +1,29 @@
 # rally-web architecture
 
-rally-web is an original browser rally game whose handling follows `docs/MECHANICS_SPEC.md` (the
-normative mechanics; "§" below points there). Stack: Vite 8, TypeScript 7 (native `tsc`), three 0.186,
+rally-web is a **full faithful port** of the author's original Refractor2-engine rally game
+(`original_version/`, not in git) to the browser: the handling follows `docs/MECHANICS_SPEC.md` (the
+normative mechanics; "§" below points there), and all 48 original track archives are ported with their
+real splines, elevations, widths, checkpoints and timing (`src/world/ports/` +
+`src/world/portedBuilder.ts`). The port targets identical look and sound as well — the visual/audio asset
+port is tracked in `PROGRESS.md` (roadmap + status). Stack: Vite 8, TypeScript 7 (native `tsc`), three 0.186,
 lil-gui, vitest, Playwright.
-
-Content rule: everything is original: stage names, car names and liveries, art, audio. Never use names,
-logos or assets of the original game, real car makers or real rally events. Display names for the three
-cars live in `src/core/constants.ts` (`ARCHETYPES`).
 
 ## 1. Module map and ownership
 
-Four builders work in parallel, each in its own directories. **Only edit files you own.** Everything in
+Four builders work in parallel (the asset-port phase: nine, see §1.1), each in its own directories. **Only edit files you own.** Everything in
 `src/core/` is the shared contract. If you need a contract change, keep going with a local workaround
 and report a *contract request* (what, why, proposed signature); the architect applies it.
 
 | Path | Owner | Contents |
 |---|---|---|
-| `src/core/` | architect (read-only for builders) | `types.ts` (all interfaces), `constants.ts` (ids, metadata, neutral inputs), `math.ts` (V3/Quat), `space.ts` (sim ↔ three mirror), `loop.ts` (120 Hz accumulator), `paths.ts` (dotted-path params), `stageUtil.ts` (spline → sim pose), `rng.ts` (seeded PRNG) |
+| `src/core/` | architect (read-only for builders) | `types.ts` (all interfaces), `constants.ts` (ids, metadata, original material / car ids, neutral inputs), `math.ts` (V3/Quat), `space.ts` (sim ↔ three mirror), `loop.ts` (120 Hz accumulator), `paths.ts` (dotted-path params), `stageUtil.ts` (spline → sim pose), `rng.ts` (seeded PRNG), `assets.ts` (original-asset manifest + fetch helpers, docs/ASSETS.md), `worldQuery.ts` (WorldQuery.segment adapters, face-cache slots, multi-level `yHint` rule) |
 | `src/main.ts`, `src/style.css`, `index.html`, `vite.config.ts`, `tsconfig.json`, `package.json` | architect | wiring, base layout, config |
 | `src/debug/testApi.ts` | architect | `window.__rally` test API |
 | `tools/smoke.mjs`, `tools/drive.mjs`, `tools/lib/harness.mjs` | architect | headless tooling (builders may add their own scripts under `tools/`) |
 | `tests/contracts/`, `tests/helpers/`, `tests/sim/flatworld.ts` | architect | cross-module contract tests and shared helpers (read-only for builders) |
+| `tools/assets/` (`build.py`, `run.mjs`, `lib/**`), `src/render/orig/{index,common,textures,rtex,dxt}.ts`, `tests/assets/`, `tools/vite-orig-assets.mjs` | architect (asset-pipeline foundation) | original-asset build (`npm run assets`) and runtime loaders; per-part ownership (track, collision, objects, environment, cars, audio plugins + their `src/**/orig` modules) in **docs/ASSETS.md §10** |
 | `src/sim/`, `tests/sim/` (except `flatworld.ts`) | **sim builder** | car physics §1-§2, parameters §3-§4, input filter §5.1 |
-| `src/world/`, `tests/world/` | **world builder** | stage catalogue, procedural stages, WorldQuery |
+| `src/world/`, `tests/world/` | **world builder** | stage catalogue (7 procedural + 48 ported originals), procedural stages, the ported real track geometry (`ports/` data, `portSpline.ts`, `portedBuilder.ts`, `portedDefs.ts`), WorldQuery |
 | `src/render/`, `src/audio/`, `tests/render/` | **render builder** | Three.js scene, cars, cameras §5.3, effects; synthesised audio |
 | `src/input/`, `src/game/`, `src/ui/`, `src/debug/` (except `testApi.ts`), `tests/game/` | **game builder** | devices, race controller §5.4/§5.7, autopilot, HUD, menu, tuning panel §6, telemetry overlay |
 
@@ -30,12 +31,48 @@ Import rule: builder modules import **only `src/core/` and their own directory**
 only integrator (it imports every module's required exports). The architect's contract tests import
 across modules on purpose.
 
-Status: the integration pass is done (all four modules are real implementations; no stubs remain). The
+**Original assets** (docs/ASSETS.md): `npm run assets` converts `original_version/archives/*.rff` into the
+gitignored `public/assets/` (manifest + per-stage / per-car / global parts + `.rtex` textures). At runtime
+`src/core/assets.ts` reads the manifest; `GameRenderer.loadStage` shows `OriginalStageView`
+(`src/render/orig/`) instead of the procedural terrain / road / scenery when a ported stage has render parts,
+and `main.ts` passes every built stage through `attachOriginalWorld` (`src/world/orig/`). Without the packs or
+with `?orig=0` everything stays procedural, silently.
+
+Status: the integration pass is done (all four modules are real implementations). The original-asset
+modules under `src/render/orig/`, `src/world/orig/` and `src/audio/orig/` are documented stubs for the asset
+phase (docs/ASSETS.md §10). The
 ownership table still says who designed what; whoever changes a module keeps its REQUIRED EXPORTS and the
 contract tests green.
 
 Each builder file starts with a header listing its **REQUIRED EXPORTS**. Keep those names and
 signatures exactly. Add any number of extra files and internal exports inside your directory.
+
+### 1.1 Ownership in the original-asset port phase (nine parallel builders)
+
+The table above records who designed each module. During the asset-port phase nine builders work at the same
+time in the same tree; **this** table says who may edit what. Anything not listed is foundation: change it only
+through a contract request (what, why, proposed signature) to the architect / integrator. `PROGRESS.md` is
+consolidated by the integrator from the builders' results — builders do not edit it.
+
+| builder | owns |
+|---|---|
+| **track** | `tools/assets/parts/track.py`; `src/render/orig/track*.ts` (+ `src/render/orig/shaders/track*`); the track's water surfaces (`Water.*` settings, environment.md §3.7); `tests/render/origTrack*.test.ts`; `docs/orig/track.md` |
+| **collision** | `tools/assets/parts/collision.py`; `src/world/orig/**`; `tests/world/orig*.test.ts` + `tests/world/fixtures/orig/**`; `docs/orig/collision.md` |
+| **objects** | `tools/assets/parts/objects.py`; `src/render/orig/objects*.ts`; `tests/render/origObjects*.test.ts`; `docs/orig/objects.md` |
+| **environment** | `tools/assets/parts/environment.py`; `src/render/orig/environment*.ts`; `src/render/sky.ts`; `src/render/weather.ts`; in `src/render/renderer.ts` only the colour-pipeline / fog / light / sky code of `loadStage` and the per-frame render call; `src/render/cameraRig.ts` only for a proven FOV fix; `tests/render/origEnvironment*.test.ts`; `docs/orig/environment.md` |
+| **cars** | `tools/assets/parts/cars.py`; `src/render/orig/car*.ts`; `src/render/carVisual.ts`, `carModel.ts`, `livery.ts`; `src/sim/origCars.ts` and `src/sim/presets.ts` (car data); in `src/render/renderer.ts` only `addCar` / `removeCar` and car-visual code; in `src/main.ts` only car selection / preset application / `listCars`; `src/ui/menu.ts` (car list); `tests/render/origCar*.test.ts`; `docs/orig/cars.md` |
+| **audio** | `tools/assets/parts/audio.py`; `src/audio/**`; `src/ui/voice.ts`; in `src/main.ts` only the audio call sites (incl. `origCar` in the FrameContext literal); `tests/audio/**`; `docs/orig/audio.md` |
+| **effects** | `tools/assets/parts/effects.py`; `src/render/effects.ts`; `src/render/orig/effects*.ts`; in `src/render/renderer.ts` only the effects call sites; `tests/render/origEffects*.test.ts`; `docs/orig/effects.md` |
+| **race** | `src/game/**`; `src/world/portedDefs.ts`, `portedBuilder.ts`, `portSpline.ts`, `src/world/ports/**`, `src/world/stages.ts`; `research/tools/port_tracks.py`; `tools/all-stages.mjs`; `tests/game/**`; `tests/world/ported*.ts`, `tests/world/stages.test.ts`, `tests/world/spline.test.ts`; `docs/orig/race.md` |
+| **sim** | `src/sim/**` except `origCars.ts` / `presets.ts`; `tests/sim/**` (except the architect's `flatworld.ts`); `research/frida/**`; `docs/MECHANICS_SPEC.md` |
+| foundation (contract requests only) | `src/core/**`, `src/render/orig/{index,common,textures,rtex,dxt}.ts`, `tools/assets/{build.py,run.mjs,lib/**}`, `docs/ASSETS.md`, `docs/ARCHITECTURE.md`, `tests/contracts/**` |
+
+Phase-0 contract changes every builder builds on (details in §4 and the doc comments in `src/core/types.ts`):
+23 surfaces = one per original material (§2 "Materials"); `WorldQuery.segment` + the optional `yHint` +
+`RayHit.{t, depth, cos, origMaterial, face}` + `CarSimOptions.slotBase` (§4 World); the original car identity
+(`RaceSelection.car`, `AddCarOptions.origCar`, `CarRenderState.origCar`, `FrameContext.origCar`,
+`CarListEntry` + `IMenuHost.listCars?`, `LaunchOptions.origCar?`, `LoadStageOptions.origCar?`, constants
+`ORIG_CAR_IDS`); `Pacenote.origWords`.
 
 ## 2. Coordinate spaces (§1.1)
 
@@ -63,8 +100,15 @@ There are exactly two spaces. Every field in `types.ts` says which one it is in 
   wheel at `WheelVisual.centreLocal` (three car-local).
 * The body origin is the centre of mass, about 0.42 m above the ground at rest (§3.2). Car meshes are built
   around that origin; wheel centres sit near `y ≈ -0.12`.
-* Materials: material id = index in `SURFACE_IDS` (0..9: tarmac, gravel, gravelDeep, mud, snow, ice, grass,
-  sand, cobbles, water). Ids ≥ 32 = solid but not ground (wheels get no contact, §2.5.1). 255 = none.
+* Materials: **one rally-web surface per original material** (gcm face byte / PhysicsParam.con row 0..22).
+  Material id = index in `SURFACE_IDS` (0..9: tarmac, gravel, gravelDeep, mud, snow, ice, grass, sand, cobbles,
+  water — unchanged; 10..22: wood, snowChunky, snowDeep, snowAsphalt, snowDitch, leaf, asphaltGrass,
+  gravelGrass, mudGrass, mudDitch, sandDeep, sandDark, sandDarkDeep). Ids ≥ 32 = solid but not ground (wheels
+  get no contact, §2.5.1 = the original's `(unsigned)mat >= 0x20` cut). 255 = none (= the original's −1).
+  **Numbering trap:** the rally-web id is not the original byte (gcm 0 = GRASS, rally-web 0 = tarmac). Convert
+  only with `constants.ts` `materialFromOrig(byte)` / `ORIG_MATERIAL_TO_MATERIAL` (256 entries; 23 DUMMY, 255 and
+  every byte > 22 → `MATERIAL_NONE`) and `origFromMaterial(id)` / `SURFACE_ORIG_ID`; never pass a raw byte to
+  `surfaceFromMaterial` or index `SURFACE_IDS` with it. Every `Record<SurfaceId, …>` table must list all 23.
 
 ## 3. Runtime loop (§1.2) and data flow
 
@@ -118,13 +162,24 @@ when the archetype is unchanged).
 ## 4. Contracts by module (see `src/core/types.ts` for the full documented types)
 
 ### Sim (`src/sim/`)
-* `class CarSim implements ICarSim` — `new CarSim({ id?, params, world, surfaces?, seed? })`;
+* `class CarSim implements ICarSim` — `new CarSim({ id?, params, world, surfaces?, seed?, slotBase?, origCar? })`
+  (`origCar` = an ORIG_CAR_IDS name: the chassis probes use that car's `Car_<Name>.col` hull, src/sim/origHulls.ts;
+  main.ts passes the selection's car and slotBase 0);
   `reset(pose, settleSteps = 100)` (zero state, then settle with handbrake 1.0, §1.2; with DEV-9
   `assist.settleToEquilibrium`, on by default, sleep is held off until the body stops bouncing, so the car rests
   at its spring equilibrium; up to ≈ 230 internal steps, synchronous), `step(controls, dt)`
   in §1.5 order, `telemetry()` (complete `CarTelemetry`, JSON-safe, may be a reused object),
   `pose()`, `setParams(partial)` (deep merge; must also accept a whole `CarParams` for an archetype switch;
-  rebuild derived values), `setSurfaces`, `setWorld`, `setParked`, `setFrozen`.
+  rebuild derived values), `setSurfaces`, `setWorld`, `setParked`, `setFrozen`, and the optional
+  `setTrackBraking(factor)` (the original's post-finish braking; `RaceController` calls it at the finish with the
+  stage's Physics.bodyBrakingFactorForTrack, `reset` clears it).
+* `telemetry().collision` — the original's collision record for the impact / bush sounds (`CollisionTelemetry`,
+  research/formats/sound.md Port findings 5): the hull contact (`hull`, raw `hullMaterial` B+0x144, `hullStrength`
+  = jn − 100 N·s, B+0x19c), the object record (`objectHits` counter, `objectType` = the obstacle's raw
+  collisionMaterial, `objectStrength`) and `bush` (`WorldQuery.softNear`, optional, mesh worlds).
+* Backfire / blow-out flags (`CarFlags`) are NOT sim telemetry: the original computes them in the per-frame car
+  update, so `src/game/carFlags.ts` (`CarFlagSource`) runs once per rendered frame in main.ts and the same object
+  goes to the audio (`FrameContext.carFlags`) and the effects (`CarRenderState.carFlags`).
 * `params.ts` — `ARCHETYPE_PARAMS`, `makeCarParams(id, overrides?)`, `DEFAULT_SURFACE_TABLE`,
   `makeSurfaceTable()`, `muStatic`, `muKinetic` (values pre-filled from §3/§4; verify them).
 * `inputFilter.ts` — `class InputFilter implements IInputFilter` (`new InputFilter(cfg?)`, `config`,
@@ -138,7 +193,15 @@ when the archetype is unchanged).
   touch) against `world.heightAt`, plus `normalAt` / `materialAt` for a penetrating point, because that works
   for any body orientation; so `heightAt` / `normalAt` must describe the same ground as `raycast` (road
   ribbon included) and stay cheap. Obstacles: `world.obstaclesNear(pos, ≈3 m)` once per step (vertical
-  cylinders).
+  cylinders) — unless the world has `objectCollidersNear` (ported stages, RCOL v2): then the original's object
+  pass runs after each step on the objects' own collision meshes (docs/orig/collision.md §4) and the cylinders are
+  only hints (autopilot).
+* Original-mesh fidelity (phase 0 contract, sim builder): `world.segment(origin, ray, slot)` is the original's
+  query. Wheels: origin = mount, ray = −springLength·bodyUp, slot = `wheelSlot(slotBase, w)`, and
+  `c0 = hit.depth`, `c4 = hit.cos` (MECHANICS_SPEC §2.5.3, research/formats/gcm.md §3.5). Hull (gcm.md §3.6):
+  segment from the previous-step centre of mass to each hull point, slot `hullSlot(slotBase, i)`, contact when
+  `origMaterial !== 255` and `depth < 0.01`. `CarSimOptions.slotBase` = 24·carIndex (default 0). Height queries
+  pass `yHint` = the body / point y so bridges resolve to the right level.
 * `telemetry().simFaults` counts NaN / explosion-guard trips (state rolled back, velocities zeroed); 0
   normally, shown in red in the overlay when non-zero.
 * Reference: `tools/reference/spec_sim_check.py` implements §2 (flat plane, awd_wrc) and the §7 tests.
@@ -148,12 +211,43 @@ when the archetype is unchanged).
 * `listStages(): StageListEntry[]` (catalogue; the **first entry is the default stage** when no
   `?stage=` is given; keep `testpad` in the list) and `buildStage(id, seed?): { stage, world }`
   (deterministic for `(id, seed)`, throws on unknown ids).
+* The catalogue is **7 procedural stages + the 48 ported originals** (`src/world/ports/*.ts`, generated
+  by `research/tools/port_tracks.py`; ids `corsica-1-f` … `rallycross-3-r`). A ported stage builds from the
+  archive's `AiFiles` centre/left/right splines (degree-3 uniform B-splines, evaluated in `portSpline.ts`;
+  the ported `s` is the **3-D arc length** — the original's distance unit) and from `Play.con`'s race
+  settings (spawn grid, valid range, event triggers = start line + timed splits + finish, default tyre,
+  laps), ported verbatim (one documented shift where an archive's distances overrun its evaluated spline).
+  Terrain and scenery dress the real road until the original render meshes are ported;
+  `tests/world/ported.test.ts` pins every stage to its archive. Fidelity roadmap: `PROGRESS.md`.
 * `Stage` (three space): centre spline `pointAt/tangentAt/roadAt/project(pos, hintS)`, `startS`,
   `startPose`, `checkpoints` (finish excluded), `finishS`, `validRange`, `environment`, `heightfield`,
   `road` ribbon samples, `scenery`, `pacenotes` (none for rallycross/ice).
-* `WorldQuery` (sim space): `raycast` (dist 0 if the origin is underground), `heightAt`, `normalAt`,
-  `materialAt`, `surfaceAt`, `obstaclesNear`. It must describe the same ground as the Stage data
-  (contract test checks road height, raycast distance, material and surface at road samples).
+* `WorldQuery` (sim space): `raycast`, `segment`, `heightAt`, `normalAt`, `materialAt`, `surfaceAt` (the four
+  point queries take an optional `yHint`), `obstaclesNear`. It must describe the same ground as the Stage data
+  (contract test checks road height, raycast distance, segment fields, material and surface at road samples).
+  * `segment(originSim, raySim, slot?)` — **required** on every implementation; the original's collision query
+    (research/formats/gcm.md §3.2-3.4 + Verification): `raySim` is the full segment vector (not unit);
+    one-sided (front faces only, start strictly above the face plane, end on/below it; parallel and back faces
+    never hit); the FIRST face in the original traversal order wins, not the nearest; per-slot face cache
+    (`slot` = wheelIndex + 24·carIndex for wheel rays, 8 + hullIndex + 24·carIndex for hull segments, −1 /
+    undefined = none, slots < 5000; helpers in `src/core/worldQuery.ts`); a hit fills `dist = t·|ray|`, `t`,
+    `depth = dot(end − v0, n)` (≤ 0), `cos = dot(n, ray)` (unnormalised), `origMaterial` (raw byte), `material`
+    (= `materialFromOrig(origMaterial)`), `face`. Optional 4th argument `out`: a RayHit written in place and
+    returned (valid until the next call with it; `makeRayHit()`); implementations may ignore it, so callers use the
+    return value. `raycast(o, dir, max, out?)` likewise. CarSim passes one scratch hit (no allocation per substep).
+  * `objectCollidersNear?(posSim, radius, out?)` — optional (mesh worlds with object meshes): `ObjectCollider`s with
+    the original's mesh query `segment(o, ray, out: ObjectSegmentHit)` (0x597810), origin, bounding sphere, render
+    box and transform; the sim's object pass uses them instead of the `obstaclesNear` cylinders.
+  * Procedural worlds (`src/world/ground.ts`, `tests/sim/flatworld.ts`, `tests/sim/profileworld.ts`,
+    `research/frida/replay.ts`) implement `segment` with `segmentViaRaycast(this, …)` (start on/below the ground
+    → miss, slot ignored) and keep the legacy `raycast` "origin underground → dist 0".
+  * Mesh worlds (`src/world/orig/**`, the original Track.gcm) implement `segment` literally and
+    `raycast(o, dir, maxDist)` = `segment(o, dir·maxDist, −1)` (`raycastViaSegment`): an origin below the ground
+    is a **miss** (the original), never dist 0. Off the mesh nothing is hit (the car falls; the §5.4 reset catches
+    it), while `heightAt` & co. fall back to the procedural terrain (never NaN).
+  * `yHint` (sim y) picks the level of multi-valued ground (bridges, overpasses): the highest ground at or below
+    `yHint + 1 m`, else the lowest above it (`pickGroundLevel`); without it the highest (unchanged).
+    Procedural worlds are single-valued and ignore it.
 * `testpad` ("Proving Ground"): ~600 × 600 m flat tarmac with patches of the other nine surfaces, a cone
   slalom, a crest, a kicker ramp, a 22° banked bowl and a 1.88 km loop road; `Stage.labels` names the
   patches (the renderer draws them as name plates). The race controller disables auto-reset, wrong way and
@@ -171,6 +265,11 @@ when the archetype is unchanged).
 * Cameras (§5.3): 8 views in `CAMERA_MODES` order, look-back, flipped-car follow, FOV 70; per-frame
   constants converted with `perFrameK(k, frameDt)`.
 * `class AudioEngine implements IAudioEngine` — synthesised, original sounds (optional polish).
+* Original car identity (phase 0 contract): `addCar(id, archetype, { origCar })` and `CarRenderState.origCar`
+  carry the original car name (`ORIG_CAR_IDS`, = `manifest.cars` key); the renderer keeps the procedural
+  archetype visual until `loadOriginalCar(origCar, …)` resolves (docs/ASSETS.md §10 gap 2). The audio engine
+  reads `FrameContext.origCar` for the per-car engine patches; `Pacenote.origWords` (original co-driver word ids
+  1..41, playback order) selects the original co-driver samples, falling back to the synthesized voice on `text`.
 * Must render under headless SwiftShader (smoke test). Keep draw calls modest.
 
 ### Game (`src/input/`, `src/game/`, `src/ui/`, `src/debug/`)
@@ -191,6 +290,10 @@ when the archetype is unchanged).
   (`new TuningPanel(host)`, lil-gui, every §6 key; writes only through `host.setParam`).
 * UI keys (`UI_KEYS`): F1 or `` ` `` tuning panel, F2 / F4 / O overlay, Esc pause menu, Backspace restart,
   H help, `.` freeze / single step, `[` `]` time scale, F8 autopilot, N co-driver voice, M mute.
+* Original cars (phase 0 contract): `RaceSelection.car?` = the original car name (absent = archetype car;
+  `archetype` stays the handling class / fallback visual); `IMenuHost.listCars?(): CarListEntry[]`
+  (`{ id, name, archetype, drive, available }`); best times and the ghost are keyed by the car name when
+  present (race builder; main.ts passes it as `race.begin(stage, car, { countdown, world, origCar })`). `Pacenote.origWords?` is present on notes ported from the original `Pacenotes.con`.
 * Hosts (implemented by main.ts): `IMenuHost` (stages, cars, startRace, restart, setPaused (opens the pause
   menu), selection, setCamera / getCameraMode, setAudioEnabled / isAudioEnabled) and `ITuningHost`
   (tunables, setParam / getParam, archetype, reset to original, JSON export / import, telemetry, autopilot,
@@ -229,17 +332,29 @@ Per-axle wheel parameters live in `car.wheel.front` / `car.wheel.rear`; single-v
 | `setParam(path, value)` / `getParams()` | see §5 |
 | `setAutopilot(bool)`, `setCamera(i \| name)`, `startRace()` | `startRace` skips menu + countdown |
 | `getFrameStats()` | frames, physics steps, sim time, fps, paused, timeScale |
-| `probe()` | car vs ground and road: `clearance` (origin above `world.heightAt`), global `s` / `lateral` / `heightOffset`, `upY`, `headingErrDeg` (car axis vs road tangent), speed |
+| `probe()` | car vs ground and road: `clearance` (origin above `world.heightAt` at the car's own height, `yHint`), global `s` / `lateral` / `heightOffset`, `upY`, `headingErrDeg` (car axis vs road tangent), speed |
+| `getCarInfo()` | the player car: `archetype`, `origCar` (null = archetype car), `hullCar` (the `Car_<Name>.col` hull in use, null = the §3.4 box), `voice` (co-driver setting) |
+| `getRaceEvents()` | the `RaceEvent`s since the last call, oldest first (drained; at most the latest 1000 kept): countdown, go, checkpoint, lap, finish, `reset` with its `reason` (`manual`, `api`, `restart`, the automatic ones), pacenote, wrongWay |
 
 Deterministic probing: `pause(true)`, then `step(n)` / `setControls(...)` / `getTelemetry()`.
 
 ## 7. URL parameters
 
-`?stage=<id>&car=awd_wrc|fwd_hatch|rwd_classic&tyre=0..4|tarmac|intermediate|gravel|snow|ice&seed=<n>`
+`?stage=<id>&car=awd_wrc|fwd_hatch|rwd_classic|<original car name, e.g. AudiS1>&tyre=0..4|tarmac|intermediate|gravel|snow|ice&seed=<n>`
+(original car names → `LaunchOptions.origCar` / `RaceSelection.car`). Without `?car=` the game starts in the
+original's default car (`ORIG_DEFAULT_CAR`, Micra) when the original cars are built, else the `awd_wrc` archetype car.
+Without `?stage=` it starts on the first original stage whose `track` and `collision` parts are built (catalogue
+order: `corsica-1-f`, also the first entry of the original's `Misc/level/track.lst`), else the first procedural
+stage; the menu then lists the original stages first.
 `&cam=<0..7|name>&autopilot=1&menu=0&countdown=0&debug=1&tune=1&timescale=0.5&trans=manual&audio=0&ghost=0`
 
 `menu=0` starts with a countdown (`countdown=0` starts immediately). Renderer: `quality=low|medium|high|auto`
-(default adaptive on a real GPU, `low` on SwiftShader), `pr=<pixel ratio>`, `aa=0|1`.
+(default adaptive on a real GPU, `low` on SwiftShader), `pr=<pixel ratio>`, `aa=0|1`. Original assets:
+`orig=0` (procedural everything), `s3tc=0` (JS DXT decoder instead of compressed uploads), `collision=0` (the
+procedural ground instead of the Track.gcm mesh), `gamma=0` / `gfxgamma=<0..1>` (the in-race gamma ramp), `music=1`
+(the user's own soundtrack copy in public/sound/, never built); diagnostics only: `carlm=0` (no track lightmap
+under the original cars), `orighook=0` (no original-fog hook on procedural materials); docs/ASSETS.md. `tools/drive.mjs --query k=v`
+(repeatable) adds any of them to a drive run.
 
 ## 8. Running and testing
 
@@ -255,6 +370,7 @@ npm run drive -- --stage <id> --autopilot --until-finish      # stepped (determi
 npm run stages               # every stage to the finish with the autopilot (--car …); table + artifacts/finish/<car>/
 npm run keys                 # real keyboard events: menu → countdown → drive → R → C → F1 panel → F2
 npm run check                # build (incl. typecheck) + vitest + smoke
+npm run assets               # original-asset packs → public/assets/ (Python; docs/ASSETS.md)
 ```
 
 `tools/drive.mjs` prints a JSON summary (max/avg speed, distance, β, lateral g, gears, surfaces, resets,

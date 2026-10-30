@@ -10,21 +10,37 @@
  *                  both, scaled by slip, speed and surface (SURFACE_INFO dust flags / colours).
  *
  * Effects advance with SIM time (telemetry.stepCount delta), so they freeze while the game is paused.
+ *
+ * ORIGINAL effects (effects builder, research/formats/effects.md): under an original stage view with the
+ * `effects` part built, ParticleSystem.setStage() loads the stage's original definitions into its
+ * OrigEffectsSystem (orig/effects.ts: the per-material CarFx emitters, exhaust bursts, the original skid marks
+ * and the drop shadow, drawn as children of this particle mesh) and every CarEffects delegates to its OrigCarFx.
+ * Procedural stages, `?orig=0`, a missing part or a failed load keep the procedural effects below. When those
+ * procedural particles are drawn INSIDE an original view (part missing / failed / still loading) they take the
+ * original look instead of the procedural preset (ParticleSystem.setOriginal): the original track fog
+ * (fogUniformMap(origUniforms.trackFog) + ORIG_FOG_PARS, per vertex) and, per particle at spawn, the projected
+ * track lightmap through the particle palette (game.particleLightmapMin = the lighting floor; OriginalStageView
+ * particleLightAt), like the original's useProjectedLightmaps sprites.
  */
 import * as THREE from 'three';
 import { DT, SURFACE_INFO } from '../core/constants';
-import type { CarTelemetry, EnvironmentPreset, SurfaceId } from '../core/types';
+import type { CarRenderState, CarTelemetry, EnvironmentPreset, SurfaceId } from '../core/types';
+import { ORIG_FOG_PARS, PARTICLE_LIGHTMAP_MAX, fogUniformMap, origUniforms } from './orig/common';
+import { OrigCarFx, OrigEffectsSystem } from './orig/effects';
+import type { TextureStore } from './orig/textures';
 import { ROAD_LIFT } from './terrain';
 
 // ------------------------------------------------------------------------------------------- particles
 
 const P_VERT = /* glsl */ `
+${ORIG_FOG_PARS}
 attribute vec3 iPos;
 attribute vec4 iCol;
 attribute vec2 iSizeRot;
 varying vec4 vCol;
 varying vec2 vUv;
 varying float vFog;
+varying float vOrigFog;
 void main() {
   vCol = iCol;
   vUv = position.xy;
@@ -33,6 +49,7 @@ void main() {
   vec2 q = vec2(c * position.x - s * position.y, s * position.x + c * position.y) * iSizeRot.x;
   mv.xy += q;
   vFog = -mv.z;
+  vOrigFog = origFogFactor(-mv.z);
   // fade particles that pass right in front of the lens (a chip 20 cm away would fill the screen)
   // (soft dust only fades when the camera is practically inside the puff)
   vCol.a *= iCol.a < 0.0 ? smoothstep(0.3, 1.5, -mv.z) : smoothstep(0.05, 0.5 + 0.2 * iSizeRot.x, -mv.z);
@@ -40,21 +57,24 @@ void main() {
 }`;
 
 const P_FRAG = /* glsl */ `
-uniform vec3 uFogColor;
-uniform float uFogNear;
-uniform float uFogFar;
+${ORIG_FOG_PARS}
+uniform vec3 uPFogColor;
+uniform float uPFogNear;
+uniform float uPFogFar;
 uniform vec3 uLight;
+uniform float uOrig;
 varying vec4 vCol;
 varying vec2 vUv;
 varying float vFog;
+varying float vOrigFog;
 void main() {
   float r = length(vUv) * 2.0;
   if (r > 1.0) discard;
   float soft = vCol.a < 0.0 ? 1.0 - smoothstep(0.8, 1.0, r) : (1.0 - smoothstep(0.0, 1.0, r));
   float a = abs(vCol.a) * soft;
   vec3 col = vCol.rgb * uLight;
-  float f = smoothstep(uFogNear, uFogFar, vFog);
-  col = mix(col, uFogColor, f);
+  if (uOrig > 0.5) col = mix(uFogColor, col, vOrigFog);          // the original track fog (linear + clamp)
+  else col = mix(col, uPFogColor, smoothstep(uPFogNear, uPFogFar, vFog));
   gl_FragColor = vec4(col, a);
 }`;
 
@@ -91,6 +111,13 @@ export class ParticleSystem {
   private readonly mat: THREE.ShaderMaterial;
   /** Global emission multiplier (quality setting). */
   density = 1;
+  /** Inside an original view: the projected-lightmap particle light at a spawn point (setOriginal). */
+  private origLight: ((x: number, y: number, z: number, out: number[], hint?: number) => number) | null = null;
+  private origMode = false;
+  private lightHint = -1;
+  private readonly lightOut = [1, 1, 1];
+  /** The original effects of the current stage (inactive on procedural stages). Drawn as children of `mesh`. */
+  readonly orig = new OrigEffectsSystem();
 
   constructor(capacity = 3000) {
     this.capacity = capacity;
@@ -110,10 +137,12 @@ export class ParticleSystem {
     this.geo = g;
     this.mat = new THREE.ShaderMaterial({
       uniforms: {
-        uFogColor: { value: new THREE.Vector3(0.8, 0.85, 0.9) },
-        uFogNear: { value: 150 },
-        uFogFar: { value: 1200 },
+        uPFogColor: { value: new THREE.Vector3(0.8, 0.85, 0.9) },
+        uPFogNear: { value: 150 },
+        uPFogFar: { value: 1200 },
         uLight: { value: new THREE.Vector3(1, 1, 1) },
+        uOrig: { value: 0 },
+        ...fogUniformMap(origUniforms.trackFog),
       },
       vertexShader: P_VERT,
       fragmentShader: P_FRAG,
@@ -126,26 +155,52 @@ export class ParticleSystem {
     this.mesh.frustumCulled = false;
     this.mesh.renderOrder = 10;
     this.mesh.name = 'particles';
+    this.mesh.add(this.orig.root);
+  }
+
+  /**
+   * Stage switch: `original` = the stage is shown through an OriginalStageView. Loads the stage's original
+   * effects (async; until then and on any failure the procedural effects run). Never throws.
+   */
+  setStage(stageId: string | null, original: boolean, store: TextureStore | null): void {
+    void this.orig.setStage(stageId, original, store).catch(() => undefined);
   }
 
   setEnvironment(env: EnvironmentPreset): void {
     const f = env.fogColor;
-    this.mat.uniforms.uFogColor.value.set(((f >> 16) & 255) / 255, ((f >> 8) & 255) / 255, (f & 255) / 255);
-    this.mat.uniforms.uFogNear.value = env.fogNear;
-    this.mat.uniforms.uFogFar.value = env.fogFar;
+    this.mat.uniforms.uPFogColor.value.set(((f >> 16) & 255) / 255, ((f >> 8) & 255) / 255, (f & 255) / 255);
+    this.mat.uniforms.uPFogNear.value = env.fogNear;
+    this.mat.uniforms.uPFogFar.value = env.fogFar;
+    if (this.origMode) return;
     // rough lighting: ambient + sun elevation, in display space
     const sunUp = Math.max(0, env.sunDir.y);
     const l = Math.min(1.05, 0.45 + 0.25 * env.ambientIntensity + 0.22 * env.sunIntensity * sunUp) * Math.min(1.2, env.exposure);
     this.mat.uniforms.uLight.value.set(l, l, l);
   }
 
+  /**
+   * Inside an original view (`on`): the original track fog (origUniforms.trackFog, by identity) and, per particle at
+   * spawn, `light` = the projected lightmap through the particle palette (−1 = no lightmap there → the palette's
+   * maximum, game.particleLightmapMax). Off: the procedural fog and lighting of setEnvironment (call it after).
+   */
+  setOriginal(on: boolean, light: ((x: number, y: number, z: number, out: number[], hint?: number) => number) | null = null): void {
+    this.origMode = on;
+    this.origLight = on ? light : null;
+    // the original effects sample the same projected lightmap (exact texel; their 4 m light grid without a view)
+    this.orig.lightSource = on ? light : null;
+    this.lightHint = -1;
+    this.mat.uniforms.uOrig.value = on ? 1 : 0;
+    if (on) this.mat.uniforms.uLight.value.set(1, 1, 1);
+  }
+
   clear(): void {
     this.count = 0;
     this.geo.instanceCount = 0;
+    this.orig.clear();
   }
 
   get alive(): number {
-    return this.count;
+    return this.count + this.orig.alive;
   }
 
   emit(e: EmitParams): void {
@@ -158,6 +213,14 @@ export class ParticleSystem {
     p.s0 = e.s0; p.s1 = e.s1;
     // colours are written in display (sRGB) space: the shader skips tone mapping like THREE.Fog does
     p.r = ((e.color >> 16) & 255) / 255; p.g = ((e.color >> 8) & 255) / 255; p.b = (e.color & 255) / 255;
+    if (this.origMode) {
+      // the original's useProjectedLightmaps: the lightmap under the spawn point through the particle palette
+      const L = this.lightOut;
+      const hit = this.origLight ? this.origLight(e.x, e.y, e.z, L, this.lightHint) : -1;
+      if (hit >= 0) this.lightHint = hit;
+      else (L[0] = PARTICLE_LIGHTMAP_MAX[0]), (L[1] = PARTICLE_LIGHTMAP_MAX[1]), (L[2] = PARTICLE_LIGHTMAP_MAX[2]);
+      p.r *= L[0]; p.g *= L[1]; p.b *= L[2];
+    }
     p.a = e.alpha;
     p.rot = Math.random() * Math.PI * 2;
     p.spin = (Math.random() - 0.5) * (e.hard ? 8 : 1.2);
@@ -165,7 +228,8 @@ export class ParticleSystem {
     p.hard = !!e.hard;
   }
 
-  update(dt: number): void {
+  update(dt: number, camera?: THREE.Camera): void {
+    this.orig.update(dt, camera ?? null);
     const ps = this.ps;
     if (dt > 0) {
       let i = 0;
@@ -214,6 +278,7 @@ export class ParticleSystem {
   }
 
   dispose(): void {
+    this.orig.dispose();
     this.geo.dispose();
     this.mat.dispose();
   }
@@ -229,20 +294,47 @@ interface SkidLook {
   slipRange: number;
   /** Faint rolling track on soft surfaces even without slip (alpha). */
   rolling: number;
+  /** Half width of the mark (m): the original's 0.1 m + the material's extra width (Skidmarks.con). */
+  halfWidth: number;
 }
 
+/**
+ * Procedural skid look per surface, from the ORIGINAL skid data (effects.md §7): colour = the material's column
+ * of Misc/texture/Tracks.dds (alpha-weighted mean) + the Skidmarks.con colour (added, like skidMarkNoBump.ps),
+ * alpha = the column's mean alpha × setIntensityClamp, half width = 0.1 m + setMaterialSkidMarkExtraWidth. The
+ * materials Skidmarks.con leaves at the renderer defaults (SNOWASPHALT 10, SNOWDITCH 11, LEAF 14, ASPHALTGRASS 15,
+ * MUDDITCH 18: colour (1,1,1) = white marks in the original) use the plain column colour here. GRASS keeps width 0
+ * (the script's COBBLES block sets material 0's extra width to 0). slip0 / slipRange / rolling stay the
+ * procedural trigger (the original trigger needs the original wheel getters, see orig/effects.ts).
+ */
 const SKID: Record<SurfaceId, SkidLook> = {
-  tarmac: { color: 0x0c0c0c, alpha: 0.75, slip0: 2.2, slipRange: 6, rolling: 0 },
-  cobbles: { color: 0x1a1a1a, alpha: 0.5, slip0: 2.5, slipRange: 6, rolling: 0 },
-  water: { color: 0x101418, alpha: 0.0, slip0: 99, slipRange: 1, rolling: 0 },
-  gravel: { color: 0x5b4a37, alpha: 0.55, slip0: 1.2, slipRange: 5, rolling: 0.12 },
-  gravelDeep: { color: 0x655340, alpha: 0.6, slip0: 1.0, slipRange: 5, rolling: 0.22 },
-  mud: { color: 0x2a1f15, alpha: 0.7, slip0: 0.8, slipRange: 4, rolling: 0.35 },
-  snow: { color: 0x8c9bb0, alpha: 0.55, slip0: 0.8, slipRange: 4, rolling: 0.3 },
-  ice: { color: 0xf4f9ff, alpha: 0.35, slip0: 1.5, slipRange: 5, rolling: 0 },
-  grass: { color: 0x34301c, alpha: 0.6, slip0: 0.8, slipRange: 4, rolling: 0.3 },
-  sand: { color: 0x9a7f52, alpha: 0.55, slip0: 0.8, slipRange: 4, rolling: 0.3 },
+  tarmac: { color: 0x1d1a1c, alpha: 0.75, slip0: 2.2, slipRange: 6, rolling: 0, halfWidth: 0.1 }, // ASPHALT 1
+  cobbles: { color: 0x6c6b6a, alpha: 0, slip0: 2.5, slipRange: 6, rolling: 0, halfWidth: 0.1 }, // COBBLES 13 (clamp 0)
+  water: { color: 0x5c5f6c, alpha: 0.36, slip0: 2.2, slipRange: 6, rolling: 0, halfWidth: 0.11 }, // WATERASPHALT 3
+  gravel: { color: 0x56452f, alpha: 0.46, slip0: 1.2, slipRange: 5, rolling: 0.12, halfWidth: 0.15 }, // GRAVEL 2
+  gravelDeep: { color: 0x7d6846, alpha: 0.78, slip0: 1.0, slipRange: 5, rolling: 0.22, halfWidth: 0.14 }, // GRAVELDEEP 12
+  mud: { color: 0x241a11, alpha: 0.4, slip0: 0.8, slipRange: 4, rolling: 0.35, halfWidth: 0.14 }, // MUD 4
+  snow: { color: 0xe0eaff, alpha: 0.22, slip0: 0.8, slipRange: 4, rolling: 0.2, halfWidth: 0.16 }, // SNOW 7
+  ice: { color: 0xebf1ff, alpha: 0.05, slip0: 1.5, slipRange: 5, rolling: 0, halfWidth: 0.12 }, // ICEASPHALT 20
+  grass: { color: 0x3f3d31, alpha: 0.31, slip0: 0.8, slipRange: 4, rolling: 0.3, halfWidth: 0.1 }, // GRASS 0
+  sand: { color: 0xffe59f, alpha: 0.16, slip0: 0.8, slipRange: 4, rolling: 0.16, halfWidth: 0.15 }, // SAND 5
+  wood: { color: 0x5e4c3a, alpha: 0, slip0: 2.5, slipRange: 6, rolling: 0, halfWidth: 0.1 }, // WOOD 6 (clamp 0)
+  snowChunky: { color: 0xdbe1f1, alpha: 0, slip0: 0.8, slipRange: 4, rolling: 0, halfWidth: 0.1 }, // SNOWCHUNKY 8 (empty column)
+  snowDeep: { color: 0xdbe1fe, alpha: 0.22, slip0: 0.8, slipRange: 4, rolling: 0.22, halfWidth: 0.17 }, // SNOWDEEP 9 (always marks)
+  snowAsphalt: { color: 0xc3c9cf, alpha: 0.74, slip0: 0.8, slipRange: 4, rolling: 0, halfWidth: 0.1 }, // SNOWASPHALT 10
+  snowDitch: { color: 0xc9d0d1, alpha: 0.74, slip0: 0.8, slipRange: 4, rolling: 0.3, halfWidth: 0.1 }, // SNOWDITCH 11
+  leaf: { color: 0x7b6b3d, alpha: 0.85, slip0: 0.8, slipRange: 4, rolling: 0.3, halfWidth: 0.1 }, // LEAF 14
+  asphaltGrass: { color: 0x3d4133, alpha: 0.74, slip0: 2.2, slipRange: 6, rolling: 0, halfWidth: 0.1 }, // ASPHALTGRASS 15
+  gravelGrass: { color: 0x463b2e, alpha: 0.31, slip0: 1.2, slipRange: 5, rolling: 0.12, halfWidth: 0.15 }, // GRAVELGRASS 16
+  mudGrass: { color: 0x3c342c, alpha: 0.31, slip0: 0.8, slipRange: 4, rolling: 0.3, halfWidth: 0.15 }, // MUDGRASS 17
+  mudDitch: { color: 0x38322c, alpha: 0.52, slip0: 0.8, slipRange: 4, rolling: 0.35, halfWidth: 0.1 }, // MUDDITCH 18
+  sandDeep: { color: 0xffd693, alpha: 0.16, slip0: 0.8, slipRange: 4, rolling: 0.16, halfWidth: 0.17 }, // SANDDEEP 19
+  sandDark: { color: 0x5c4c38, alpha: 0.16, slip0: 0.8, slipRange: 4, rolling: 0.16, halfWidth: 0.15 }, // SANDDARK 21
+  sandDarkDeep: { color: 0x584624, alpha: 0.78, slip0: 0.8, slipRange: 4, rolling: 0.3, halfWidth: 0.18 }, // SANDDARKDEEP 22
 };
+
+/** Exported for tests: the procedural skid look of a surface. */
+export const skidLook = (s: SurfaceId): Readonly<SkidLook> => SKID[s];
 
 interface WheelTrack {
   active: boolean;
@@ -478,21 +570,36 @@ export class CarEffects {
   private readonly lastMark: { x: number; z: number }[] = [];
   /** Aggregates for audio / debugging. */
   readonly slip = [0, 0, 0, 0];
+  /** The original effects of this car (used while the particle system has an original stage loaded). */
+  readonly orig: OrigCarFx;
 
-  constructor(particles: ParticleSystem, skids: SkidMarks) {
+  /** `origCar` = the original car name (exhaust bursts and drop shadow need its data; absent → none). */
+  constructor(particles: ParticleSystem, skids: SkidMarks, origCar?: string | null) {
     this.particles = particles;
     this.skids = skids;
     this.tracks = [0, 1, 2, 3].map(() => skids.newTrack());
     for (let i = 0; i < 4; i++) this.lastMark.push({ x: 1e9, z: 1e9 });
+    this.orig = new OrigCarFx(particles.orig, origCar);
   }
 
   reset(): void {
     for (const t of this.tracks) t.active = false;
     for (const m of this.lastMark) m.x = m.z = 1e9;
     this.acc.fill(0);
+    this.orig.reset();
   }
 
-  update(tel: Readonly<CarTelemetry>): void {
+  /** Release the original effects of this car (emitters, drop shadow). */
+  dispose(): void {
+    this.orig.dispose();
+  }
+
+  /** `pose` = the interpolated render pose (drop shadow, exhaust); the telemetry pose otherwise. */
+  update(tel: Readonly<CarTelemetry>, pose?: Readonly<CarRenderState>): void {
+    if (this.particles.orig.active) {
+      this.orig.update(tel, pose);
+      return;
+    }
     if (tel.resetCount !== this.lastReset) {
       this.lastReset = tel.resetCount;
       this.lastStep.n = tel.stepCount;
@@ -533,7 +640,7 @@ export class CarEffects {
         lm.z = cp.z;
       } else if (moved > 0.3) {
         if (moved > 4) this.tracks[i].active = false; // teleport / big gap: start a fresh ribbon
-        this.skids.add(this.tracks[i], cp.x, cp.y + ROAD_LIFT + 0.012, cp.z, dx, dz, 0.11, sk.color, alpha);
+        this.skids.add(this.tracks[i], cp.x, cp.y + ROAD_LIFT + 0.012, cp.z, dx, dz, sk.halfWidth, sk.color, alpha);
         lm.x = cp.x;
         lm.z = cp.z;
       }

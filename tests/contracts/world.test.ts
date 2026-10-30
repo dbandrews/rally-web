@@ -4,7 +4,7 @@
  * WorldQuery agreement that the sim, renderer and race controller all rely on).
  */
 import { describe, expect, it } from 'vitest';
-import { MATERIAL, SURFACE_IDS } from '../../src/core/constants';
+import { MATERIAL, SURFACE_IDS, SURFACE_ORIG_ID } from '../../src/core/constants';
 import { len } from '../../src/core/math';
 import { simPoseOnStage, simStartPose } from '../../src/core/stageUtil';
 import { buildStage, listStages } from '../../src/world/stages';
@@ -82,17 +82,39 @@ describe.each(stages.map((s) => [s.id, s] as const))('stage %s', (id, entry) => 
       expect(hit!.material).toBe(MATERIAL[r.surface]);
       expect(hit!.normal.y).toBeGreaterThan(0.5);
       expect(world.surfaceAt(xs, zs)).toBe(r.surface);
+      // segment(): the original's query (full segment vector, every RayHit field filled)
+      const seg = world.segment({ x: xs, y: r.pos.y + 2, z: zs }, { x: 0, y: -5, z: 0 }, 0);
+      expect(seg).not.toBeNull();
+      expect(Math.abs(seg!.dist - hit!.dist)).toBeLessThan(1e-6);
+      expect(seg!.t).toBeCloseTo(seg!.dist / 5, 9);
+      expect(seg!.cos).toBeCloseTo(-5 * seg!.normal.y, 9);
+      expect(seg!.depth).toBeCloseTo(-(5 - seg!.dist) * seg!.normal.y, 6);
+      expect(seg!.material).toBe(MATERIAL[r.surface]);
+      expect(seg!.origMaterial).toBe(SURFACE_ORIG_ID[r.surface]);
+      // one-sided, start strictly above the plane: a start below the ground or an upward segment misses
+      const g = world.heightAt(xs, zs);
+      expect(world.segment({ x: xs, y: g - 0.5, z: zs }, { x: 0, y: -1, z: 0 })).toBeNull();
+      expect(world.segment({ x: xs, y: g - 0.5, z: zs }, { x: 0, y: 2, z: 0 }, -1)).toBeNull();
+      // segment too short to reach the ground: miss
+      expect(world.segment({ x: xs, y: g + 2, z: zs }, { x: 0, y: -1, z: 0 })).toBeNull();
+      // yHint is accepted (procedural worlds are single-valued: same answer)
+      expect(world.heightAt(xs, zs, g)).toBe(g);
     }
   });
 
   it('start, checkpoints, finish and pacenotes are well formed', () => {
     const [lo, hi] = stage.validRange;
-    expect(lo).toBeLessThanOrEqual(stage.startS);
+    const sp = stage.project(stage.startPose.pos);
+    // the range minimum may lie past the start line (a ported archive's splineRange verbatim, corsica-2-f 550 vs
+    // trigger 0 at 545) as long as the car waiting at its spawn pose is inside the range
+    if (lo > stage.startS) {
+      expect(sp.s).toBeGreaterThanOrEqual(lo);
+      expect(sp.s).toBeLessThanOrEqual(hi);
+    }
     expect(stage.startS).toBeLessThanOrEqual(hi);
     for (let i = 1; i < stage.checkpoints.length; i++) expect(stage.checkpoints[i]).toBeGreaterThan(stage.checkpoints[i - 1]);
     for (const c of stage.checkpoints) expect(c).toBeGreaterThanOrEqual(lo);
     expect(stage.finishS).toBeLessThanOrEqual(hi);
-    const sp = stage.project(stage.startPose.pos);
     expect(Math.abs(sp.lateral)).toBeLessThan(stage.roadAt(sp.s).width / 2);
     for (let i = 1; i < stage.pacenotes.length; i++) expect(stage.pacenotes[i].s).toBeGreaterThanOrEqual(stage.pacenotes[i - 1].s);
     if (stage.discipline === 'rallycross' || stage.discipline === 'ice') expect(stage.pacenotes.length).toBe(0);

@@ -4,7 +4,8 @@
  */
 
 export interface UiSettings {
-  /** Co-driver reads the pacenotes aloud (speechSynthesis). */
+  /** Co-driver reads the pacenotes aloud: the original's co-driver samples when the sound bank is loaded, else
+   *  speechSynthesis. On by default (the original always speaks the notes; N or the menu turns it off). */
   voice: boolean;
   /** Show the pacenote cards in the HUD. */
   pacenoteHud: boolean;
@@ -12,13 +13,21 @@ export interface UiSettings {
   hud: boolean;
 }
 
-const KEY = 'rally-web:ui:v1';
-const DEFAULTS: UiSettings = { voice: false, pacenoteHud: true, hud: true };
+const KEY = 'rally-web:ui:v2';
+/** v1 stored the whole object, so its `voice` is the old default (off) unless the player toggled it: dropped. */
+const KEY_V1 = 'rally-web:ui:v1';
+const DEFAULTS: UiSettings = { voice: true, pacenoteHud: true, hud: true };
 
 function load(): UiSettings {
   try {
     const raw = globalThis.localStorage?.getItem(KEY);
     if (raw) return { ...DEFAULTS, ...(JSON.parse(raw) as Partial<UiSettings>) };
+    const v1 = globalThis.localStorage?.getItem(KEY_V1);
+    if (v1) {
+      const { voice: _old, ...rest } = JSON.parse(v1) as Partial<UiSettings>;
+      void _old;
+      return { ...DEFAULTS, ...rest };
+    }
   } catch {
     /* ignore */
   }

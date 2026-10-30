@@ -1,0 +1,7464 @@
+{
+ "car.ambient": {
+  "command": "car.ambient",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00433300",
+    "ns": "Car",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86de78",
+    "vtable": "0x8002a0",
+    "exec": "0x433620",
+    "calls": [
+     {
+      "at": "0x433637",
+      "fn": "0x410140",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x433683",
+      "fn": "0x4100c0",
+      "obj": "0x868558",
+      "field": [
+       "0x120",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "car.dropShadowColor": {
+  "command": "car.dropShadowColor",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00434f80",
+    "ns": "Car",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86ed20",
+    "vtable": "0x8005e0",
+    "exec": "0x4352a0",
+    "calls": [
+     {
+      "at": "0x4352b7",
+      "fn": "0x411870",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x435303",
+      "fn": "0x4117f0",
+      "obj": "0x868558",
+      "field": [
+       "0x164",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "car.dropShadowScale": {
+  "command": "car.dropShadowScale",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "car.envmapColorScale": {
+  "command": "car.envmapColorScale",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00652de0",
+    "ns": "Car",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x923398",
+    "vtable": "0x820830",
+    "exec": "0x653100",
+    "calls": [
+     {
+      "at": "0x653111",
+      "fn": "0x647f30",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x65311a",
+      "vcall": "0x78",
+      "obj": null
+     },
+     {
+      "at": "0x653159",
+      "fn": "0x647f30",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x653167",
+      "vcall": "0x74",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "car.lightColor": {
+  "command": "car.lightColor",
+  "candidates": 6,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00432f40",
+    "ns": "Car",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86e088",
+    "vtable": "0x800238",
+    "exec": "0x433260",
+    "calls": [
+     {
+      "at": "0x433277",
+      "fn": "0x4100b0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x4332c3",
+      "fn": "0x410030",
+      "obj": "0x868558",
+      "field": [
+       "0x114",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Car.lightmapClamp": {
+  "command": "Car.lightmapClamp",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00433e40",
+    "ns": "Car",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86ea98",
+    "vtable": "0x8003d8",
+    "exec": "0x434130",
+    "calls": [
+     {
+      "at": "0x434147",
+      "fn": "0x4102f0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x434184",
+      "fn": "0x410270",
+      "obj": "0x868558",
+      "field": [
+       "0x144",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Car.lightmapMax": {
+  "command": "Car.lightmapMax",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00433a80",
+    "ns": "Car",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86eda8",
+    "vtable": "0x800370",
+    "exec": "0x433da0",
+    "calls": [
+     {
+      "at": "0x433db7",
+      "fn": "0x410260",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x433e03",
+      "fn": "0x4101e0",
+      "obj": "0x868558",
+      "field": [
+       "0x138",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Car.lightmapMin": {
+  "command": "Car.lightmapMin",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004336c0",
+    "ns": "Car",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86f0c0",
+    "vtable": "0x800308",
+    "exec": "0x4339e0",
+    "calls": [
+     {
+      "at": "0x4339f7",
+      "fn": "0x4101d0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x433a43",
+      "fn": "0x410150",
+      "obj": "0x868558",
+      "field": [
+       "0x130",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "car.metallicSpecularScale": {
+  "command": "car.metallicSpecularScale",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006531b0",
+    "ns": "Car",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x923318",
+    "vtable": "0x820898",
+    "exec": "0x653480",
+    "calls": [
+     {
+      "at": "0x65348f",
+      "fn": "0x647f30",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x65349b",
+      "vcall": "0x80",
+      "obj": null
+     },
+     {
+      "at": "0x6534ba",
+      "fn": "0x647f30",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x6534c8",
+      "vcall": "0x7c",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Car.setDropShadowScale": {
+  "command": "Car.setDropShadowScale",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00438f20",
+    "ns": "Car",
+    "type": "Vec3",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x86cb48",
+    "vtable": "0x800d98",
+    "exec": "0x439310",
+    "calls": [
+     {
+      "at": "0x43935a",
+      "fn": "0x46a480",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x439365",
+      "fn": "0x46a480",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x43938f",
+      "fn": "0x409d60",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x4393be",
+      "fn": "0x40ad30",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x4393ec",
+      "fn": "0x40ad10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x439419",
+      "fn": "0x4150e0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x439420",
+      "fn": "0x4bbfd0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x439449",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "car.shadowColor": {
+  "command": "car.shadowColor",
+  "candidates": 5,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00434bc0",
+    "ns": "Car",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86f570",
+    "vtable": "0x800578",
+    "exec": "0x434ee0",
+    "calls": [
+     {
+      "at": "0x434ef7",
+      "fn": "0x4a3660",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x434f43",
+      "fn": "0x411770",
+      "obj": "0x868558",
+      "field": [
+       "0x158",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Car.shadowHeightScale": {
+  "command": "Car.shadowHeightScale",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00434870",
+    "ns": "Car",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86f888",
+    "vtable": "0x800510",
+    "exec": "0x434b40",
+    "calls": [
+     {
+      "at": "0x434b56",
+      "fn": "0x410440",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x434b7d",
+      "fn": "0x4103e0",
+      "obj": "0x868558",
+      "field": [
+       "0x154",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "car.specularColor": {
+  "command": "car.specularColor",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00651cd0",
+    "ns": "Car",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x923088",
+    "vtable": "0x820628",
+    "exec": "0x651ff0",
+    "calls": [
+     {
+      "at": "0x652001",
+      "fn": "0x647f30",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x65200a",
+      "vcall": "0x50",
+      "obj": null
+     },
+     {
+      "at": "0x652049",
+      "fn": "0x647f30",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x652057",
+      "vcall": "0x4c",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "car.specularHighlightsEnable": {
+  "command": "car.specularHighlightsEnable",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00652740",
+    "ns": "Car",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9234a0",
+    "vtable": "0x820760",
+    "exec": "0x652a10",
+    "calls": [
+     {
+      "at": "0x652a1f",
+      "fn": "0x647f30",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x652a2b",
+      "vcall": "0x68",
+      "obj": null
+     },
+     {
+      "at": "0x652a47",
+      "fn": "0x647f30",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x652a55",
+      "vcall": "0x64",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Cloud.setDstBlend": {
+  "command": "Cloud.setDstBlend",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00540340",
+    "ns": "Cloud",
+    "type": "void",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8ede70",
+    "vtable": "0x80bb88",
+    "exec": "0x540630",
+    "calls": [
+     {
+      "at": "0x54064b",
+      "fn": "0x549120",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x540656",
+      "fn": "0x549120",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Cloud.setHeight": {
+  "command": "Cloud.setHeight",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00541160",
+    "ns": "Cloud",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8edff0",
+    "vtable": "0x80bd28",
+    "exec": "0x541430",
+    "calls": []
+   }
+  ]
+ },
+ "Cloud.setName": {
+  "command": "Cloud.setName",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053f210",
+    "ns": "Cloud",
+    "type": "std::string",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8ee070",
+    "vtable": "0x80bab8",
+    "exec": "0x53f4f0",
+    "calls": [
+     {
+      "at": "0x53f522",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x53f555",
+      "fn": "0x46a480",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x53f55e",
+      "fn": "0x46a480",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x53f587",
+      "fn": "0x409d60",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x53f5b4",
+      "fn": "0x40ad30",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x53f60d",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Cloud.setSpeed": {
+  "command": "Cloud.setSpeed",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_005409d0",
+    "ns": "Cloud",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x8edc60",
+    "vtable": "0x80bc58",
+    "exec": "0x540d20",
+    "calls": []
+   }
+  ]
+ },
+ "Cloud.setSrcBlend": {
+  "command": "Cloud.setSrcBlend",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053f6a0",
+    "ns": "Cloud",
+    "type": "void",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8edf70",
+    "vtable": "0x80bb20",
+    "exec": "0x5402e0",
+    "calls": [
+     {
+      "at": "0x5402fb",
+      "fn": "0x549110",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x540306",
+      "fn": "0x549110",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Cloud.setTexScale": {
+  "command": "Cloud.setTexScale",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00540690",
+    "ns": "Cloud",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8edd60",
+    "vtable": "0x80bbf0",
+    "exec": "0x540960",
+    "calls": [
+     {
+      "at": "0x540982",
+      "fn": "0x549080",
+      "obj": null,
+      "field": [
+       "0x10",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x540992",
+      "fn": "0x549080",
+      "obj": null,
+      "field": [
+       "0x10",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Cloud.texture": {
+  "command": "Cloud.texture",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_005416a0",
+    "ns": "Cloud",
+    "type": "std::string",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8edde0",
+    "vtable": "0x80bdf8",
+    "exec": "0x5419d0",
+    "calls": [
+     {
+      "at": "0x5419f3",
+      "fn": "0x549600",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x541a01",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x541a30",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x541a4c",
+      "fn": "0x5494b0",
+      "obj": null,
+      "field": [
+       "0x84",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x541a73",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Debug.spriteAmbientColor": {
+  "command": "Debug.spriteAmbientColor",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "Game.ambientColor": {
+  "command": "Game.ambientColor",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "game.brightness": {
+  "command": "game.brightness",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0041f070",
+    "ns": "Game",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86b4e0",
+    "vtable": "0x7fdcd8",
+    "exec": "0x41f390",
+    "calls": [
+     {
+      "at": "0x41f3a7",
+      "fn": "0x40fcc0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x41f3f3",
+      "fn": "0x40fc40",
+      "obj": "0x868558",
+      "field": [
+       "0xb4",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Game.carAmbient": {
+  "command": "Game.carAmbient",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "Game.carLightColor": {
+  "command": "Game.carLightColor",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "Game.carLightmapClamp": {
+  "command": "Game.carLightmapClamp",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "game.contrast": {
+  "command": "game.contrast",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0041f430",
+    "ns": "Game",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86bd98",
+    "vtable": "0x7fdd40",
+    "exec": "0x41f750",
+    "calls": [
+     {
+      "at": "0x41f767",
+      "fn": "0x40fd50",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x41f7b3",
+      "fn": "0x40fcd0",
+      "obj": "0x868558",
+      "field": [
+       "0xc0",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "game.drawSkidMarks": {
+  "command": "game.drawSkidMarks",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0041aa70",
+    "ns": "Game",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x869c20",
+    "vtable": "0x7fd450",
+    "exec": "0x41ad40",
+    "calls": [
+     {
+      "at": "0x41ad56",
+      "fn": "0x410d10",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x41ad7f",
+      "fn": "0x410cb0",
+      "obj": "0x868558",
+      "field": [
+       "0x204",
+       "char *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "game.drawWorld": {
+  "command": "game.drawWorld",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0041b7b0",
+    "ns": "Game",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86a530",
+    "vtable": "0x7fd5f0",
+    "exec": "0x41ba80",
+    "calls": [
+     {
+      "at": "0x41ba96",
+      "fn": "0x410ed0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x41babf",
+      "fn": "0x410e70",
+      "obj": "0x868558",
+      "field": [
+       "0x1fa",
+       "char *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "game.dynamicShadows": {
+  "command": "game.dynamicShadows",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00422880",
+    "ns": "Game",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x869488",
+    "vtable": "0x7fe358",
+    "exec": "0x422b50",
+    "calls": [
+     {
+      "at": "0x422b66",
+      "fn": "0x411fd0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x422b8f",
+      "fn": "0x411f70",
+      "obj": "0x868558",
+      "field": [
+       "0x21a",
+       "char *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "game.enableAnimationTriggerSystem": {
+  "command": "game.enableAnimationTriggerSystem",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00427780",
+    "ns": "Game",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86a730",
+    "vtable": "0x7fed18",
+    "exec": "0x427a50",
+    "calls": [
+     {
+      "at": "0x427a66",
+      "fn": "0x412980",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x427a8f",
+      "fn": "0x412970",
+      "obj": "0x868558",
+      "field": [
+       "0x282",
+       "undefined1 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "game.gamma": {
+  "command": "game.gamma",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0041e960",
+    "ns": "Game",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86b6e8",
+    "vtable": "0x7fdc08",
+    "exec": "0x41ec80",
+    "calls": [
+     {
+      "at": "0x41ec97",
+      "fn": "0x40fbc0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x41ece3",
+      "fn": "0x40fb40",
+      "obj": "0x868558",
+      "field": [
+       "0xa8",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "game.lightColor": {
+  "command": "game.lightColor",
+  "candidates": 6,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0041ff70",
+    "ns": "Game",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86b8f0",
+    "vtable": "0x7fde78",
+    "exec": "0x420290",
+    "calls": [
+     {
+      "at": "0x4202a7",
+      "fn": "0x40ff00",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x4202f3",
+      "fn": "0x40fe80",
+      "obj": "0x868558",
+      "field": [
+       "0xe8",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Game.lightDiffuse": {
+  "command": "Game.lightDiffuse",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "Game.lightSpecular": {
+  "command": "Game.lightSpecular",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "game.particleLightmapMin": {
+  "command": "game.particleLightmapMin",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00420ae0",
+    "ns": "Game",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86c120",
+    "vtable": "0x7fdfb0",
+    "exec": "0x420e00",
+    "calls": [
+     {
+      "at": "0x420e17",
+      "fn": "0x4104d0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x420e63",
+      "fn": "0x410450",
+      "obj": "0x868558",
+      "field": [
+       "0x1b8",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "game.renderToTexture": {
+  "command": "game.renderToTexture",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00424d40",
+    "ns": "Game",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x869ba0",
+    "vtable": "0x7fe7d0",
+    "exec": "0x425010",
+    "calls": [
+     {
+      "at": "0x425026",
+      "fn": "0x4124c0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x42504f",
+      "fn": "0x412460",
+      "obj": "0x868558",
+      "field": [
+       "0x23f",
+       "char *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "game.shadowColor": {
+  "command": "game.shadowColor",
+  "candidates": 5,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00420340",
+    "ns": "Game",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86c4b8",
+    "vtable": "0x7fdee0",
+    "exec": "0x420680",
+    "calls": [
+     {
+      "at": "0x420697",
+      "fn": "0x40ff90",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x4206e3",
+      "fn": "0x40ff10",
+      "obj": "0x868558",
+      "field": [
+       "0xf4",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Game.trackGammaDelta": {
+  "command": "Game.trackGammaDelta",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004167c0",
+    "ns": "Game",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86c1a8",
+    "vtable": "0x7fcc30",
+    "exec": "0x416a90",
+    "calls": [
+     {
+      "at": "0x416aa6",
+      "fn": "0x40ef40",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x416acd",
+      "fn": "0x40ef30",
+      "obj": "0x868558",
+      "field": [
+       "0x78",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.active": {
+  "command": "geometryTemplate.active",
+  "candidates": 6,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0055b5e0",
+    "ns": "GeometryTemplate",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90e6a0",
+    "vtable": "0x80d828",
+    "exec": "0x55b8b0",
+    "calls": [
+     {
+      "at": "0x55b8c7",
+      "vcall": "0x1c",
+      "obj": "0x90e840"
+     },
+     {
+      "at": "0x55b8e7",
+      "vcall": "0x18",
+      "obj": "0x90e840"
+     }
+    ]
+   }
+  ]
+ },
+ "GeometryTemplate.billboardDistance": {
+  "command": "GeometryTemplate.billboardDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00563940",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90f480",
+    "vtable": "0x80e678",
+    "exec": "0x563c10",
+    "calls": [
+     {
+      "at": "0x563c1f",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x563c2b",
+      "vcall": "0x40",
+      "obj": null
+     },
+     {
+      "at": "0x563c47",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x563c55",
+      "vcall": "0x3c",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.gradiantFactor": {
+  "command": "geometryTemplate.gradiantFactor",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00564800",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90f400",
+    "vtable": "0x80e818",
+    "exec": "0x564ad0",
+    "calls": [
+     {
+      "at": "0x564adf",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x564aeb",
+      "vcall": "0x60",
+      "obj": null
+     },
+     {
+      "at": "0x564b07",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x564b15",
+      "vcall": "0x5c",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.lightColor": {
+  "command": "geometryTemplate.lightColor",
+  "candidates": 6,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00561c00",
+    "ns": "GeometryTemplate",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x910960",
+    "vtable": "0x80e3a0",
+    "exec": "0x562080",
+    "calls": [
+     {
+      "at": "0x562091",
+      "fn": "0x55ccf0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56209a",
+      "vcall": "0x14",
+      "obj": null
+     },
+     {
+      "at": "0x5620d9",
+      "fn": "0x55ccf0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x5620e7",
+      "vcall": "0x10",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_00564060",
+    "ns": "GeometryTemplate",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90edd0",
+    "vtable": "0x80e748",
+    "exec": "0x564380",
+    "calls": [
+     {
+      "at": "0x564391",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56439a",
+      "vcall": "0x50",
+      "obj": null
+     },
+     {
+      "at": "0x5643d9",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x5643e7",
+      "vcall": "0x4c",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056a790",
+    "ns": "GeometryTemplate",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x910c78",
+    "vtable": "0x80f378",
+    "exec": "0x56aab0",
+    "calls": [
+     {
+      "at": "0x56aac1",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56aaca",
+      "vcall": "0x34",
+      "obj": null
+     },
+     {
+      "at": "0x56ab09",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56ab17",
+      "vcall": "0x30",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.lighting": {
+  "command": "geometryTemplate.lighting",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00565410",
+    "ns": "GeometryTemplate",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90faa0",
+    "vtable": "0x80e9b8",
+    "exec": "0x5656e0",
+    "calls": [
+     {
+      "at": "0x5656ef",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x5656fb",
+      "vcall": "0xd0",
+      "obj": null
+     },
+     {
+      "at": "0x56571a",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x565728",
+      "vcall": "0xcc",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056af30",
+    "ns": "GeometryTemplate",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x911290",
+    "vtable": "0x80f448",
+    "exec": "0x56b200",
+    "calls": [
+     {
+      "at": "0x56b20f",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56b21b",
+      "vcall": "0x44",
+      "obj": null
+     },
+     {
+      "at": "0x56b237",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56b245",
+      "vcall": "0x40",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.mipmapBlendingEnable": {
+  "command": "geometryTemplate.mipmapBlendingEnable",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00565e30",
+    "ns": "GeometryTemplate",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90f0f8",
+    "vtable": "0x80eaf0",
+    "exec": "0x566100",
+    "calls": [
+     {
+      "at": "0x56610f",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56611b",
+      "vcall": "0xe8",
+      "obj": null
+     },
+     {
+      "at": "0x56613a",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x566148",
+      "vcall": "0xe4",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.shadowColor": {
+  "command": "geometryTemplate.shadowColor",
+  "candidates": 5,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00562130",
+    "ns": "GeometryTemplate",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9108d8",
+    "vtable": "0x80e408",
+    "exec": "0x562450",
+    "calls": [
+     {
+      "at": "0x562461",
+      "fn": "0x55ccf0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56246a",
+      "vcall": "0x1c",
+      "obj": null
+     },
+     {
+      "at": "0x5624a9",
+      "fn": "0x55ccf0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x5624b7",
+      "vcall": "0x18",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_00564430",
+    "ns": "GeometryTemplate",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90ec48",
+    "vtable": "0x80e7b0",
+    "exec": "0x564750",
+    "calls": [
+     {
+      "at": "0x564761",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56476a",
+      "vcall": "0x58",
+      "obj": null
+     },
+     {
+      "at": "0x5647a9",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x5647b7",
+      "vcall": "0x54",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056ab60",
+    "ns": "GeometryTemplate",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x910b70",
+    "vtable": "0x80f3e0",
+    "exec": "0x56ae80",
+    "calls": [
+     {
+      "at": "0x56ae91",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56ae9a",
+      "vcall": "0x3c",
+      "obj": null
+     },
+     {
+      "at": "0x56aed9",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56aee7",
+      "vcall": "0x38",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "GeometryTemplate.sideScreen": {
+  "command": "GeometryTemplate.sideScreen",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_005650b0",
+    "ns": "GeometryTemplate",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90ef70",
+    "vtable": "0x80e950",
+    "exec": "0x565380",
+    "calls": [
+     {
+      "at": "0x56538f",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56539b",
+      "vcall": "0xc8",
+      "obj": null
+     },
+     {
+      "at": "0x5653ba",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x5653c8",
+      "vcall": "0xc4",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.swayDirection": {
+  "command": "geometryTemplate.swayDirection",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00566190",
+    "ns": "GeometryTemplate",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90fa18",
+    "vtable": "0x80eb58",
+    "exec": "0x566480",
+    "calls": [
+     {
+      "at": "0x566491",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56649a",
+      "vcall": "0x70",
+      "obj": null
+     },
+     {
+      "at": "0x5664ca",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x5664d8",
+      "vcall": "0x6c",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056b280",
+    "ns": "GeometryTemplate",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x911188",
+    "vtable": "0x80f4b0",
+    "exec": "0x56b570",
+    "calls": [
+     {
+      "at": "0x56b581",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56b58a",
+      "vcall": "0x4c",
+      "obj": null
+     },
+     {
+      "at": "0x56b5ba",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56b5c8",
+      "vcall": "0x48",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.swayEnable": {
+  "command": "geometryTemplate.swayEnable",
+  "candidates": 5,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00567a50",
+    "ns": "GeometryTemplate",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90f808",
+    "vtable": "0x80ee30",
+    "exec": "0x567d20",
+    "calls": [
+     {
+      "at": "0x567d2f",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x567d3b",
+      "vcall": "0xa8",
+      "obj": null
+     },
+     {
+      "at": "0x567d5a",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x567d68",
+      "vcall": "0xa4",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056c9f0",
+    "ns": "GeometryTemplate",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x911008",
+    "vtable": "0x80f788",
+    "exec": "0x56ccc0",
+    "calls": [
+     {
+      "at": "0x56cccf",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56ccdb",
+      "vcall": "0x84",
+      "obj": null
+     },
+     {
+      "at": "0x56ccfa",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56cd08",
+      "vcall": "0x80",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.swayForceLengthSeconds": {
+  "command": "geometryTemplate.swayForceLengthSeconds",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_005676f0",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90fd38",
+    "vtable": "0x80edc8",
+    "exec": "0x5679c0",
+    "calls": [
+     {
+      "at": "0x5679cf",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x5679db",
+      "vcall": "0xa0",
+      "obj": null
+     },
+     {
+      "at": "0x5679fa",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x567a08",
+      "vcall": "0x9c",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056c6a0",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x911108",
+    "vtable": "0x80f720",
+    "exec": "0x56c970",
+    "calls": [
+     {
+      "at": "0x56c97f",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56c98b",
+      "vcall": "0x7c",
+      "obj": null
+     },
+     {
+      "at": "0x56c9a7",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56c9b5",
+      "vcall": "0x78",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.swayForcePeriodSeconds": {
+  "command": "geometryTemplate.swayForcePeriodSeconds",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00567390",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90fec8",
+    "vtable": "0x80ed60",
+    "exec": "0x567660",
+    "calls": [
+     {
+      "at": "0x56766f",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56767b",
+      "vcall": "0x98",
+      "obj": null
+     },
+     {
+      "at": "0x56769a",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x5676a8",
+      "vcall": "0x94",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056c350",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x911210",
+    "vtable": "0x80f6b8",
+    "exec": "0x56c620",
+    "calls": [
+     {
+      "at": "0x56c62f",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56c63b",
+      "vcall": "0x74",
+      "obj": null
+     },
+     {
+      "at": "0x56c657",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56c665",
+      "vcall": "0x70",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.swayForceRangeDegrees": {
+  "command": "geometryTemplate.swayForceRangeDegrees",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00567030",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90ff48",
+    "vtable": "0x80ecf8",
+    "exec": "0x567300",
+    "calls": [
+     {
+      "at": "0x56730f",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56731b",
+      "vcall": "0x90",
+      "obj": null
+     },
+     {
+      "at": "0x56733a",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x567348",
+      "vcall": "0x8c",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056c000",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x910af0",
+    "vtable": "0x80f650",
+    "exec": "0x56c2d0",
+    "calls": [
+     {
+      "at": "0x56c2df",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56c2eb",
+      "vcall": "0x6c",
+      "obj": null
+     },
+     {
+      "at": "0x56c307",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56c315",
+      "vcall": "0x68",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.swayPeriodSeconds": {
+  "command": "geometryTemplate.swayPeriodSeconds",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00566cd0",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90f580",
+    "vtable": "0x80ec90",
+    "exec": "0x566fa0",
+    "calls": [
+     {
+      "at": "0x566faf",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x566fbb",
+      "vcall": "0x88",
+      "obj": null
+     },
+     {
+      "at": "0x566fda",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x566fe8",
+      "vcall": "0x84",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056bcb0",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x910bf8",
+    "vtable": "0x80f5e8",
+    "exec": "0x56bf80",
+    "calls": [
+     {
+      "at": "0x56bf8f",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56bf9b",
+      "vcall": "0x64",
+      "obj": null
+     },
+     {
+      "at": "0x56bfb7",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56bfc5",
+      "vcall": "0x60",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "GeometryTemplate.swayRangeDegrees": {
+  "command": "GeometryTemplate.swayRangeDegrees",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00566980",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90f680",
+    "vtable": "0x80ec28",
+    "exec": "0x566c50",
+    "calls": [
+     {
+      "at": "0x566c5f",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x566c6b",
+      "vcall": "0x80",
+      "obj": null
+     },
+     {
+      "at": "0x566c8a",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x566c98",
+      "vcall": "0x7c",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056b960",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x910d00",
+    "vtable": "0x80f580",
+    "exec": "0x56bc30",
+    "calls": [
+     {
+      "at": "0x56bc3f",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56bc4b",
+      "vcall": "0x5c",
+      "obj": null
+     },
+     {
+      "at": "0x56bc67",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56bc75",
+      "vcall": "0x58",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "geometryTemplate.swayWindFactor": {
+  "command": "geometryTemplate.swayWindFactor",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00566520",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90f888",
+    "vtable": "0x80ebc0",
+    "exec": "0x566900",
+    "calls": [
+     {
+      "at": "0x56690f",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56691b",
+      "vcall": "0x78",
+      "obj": null
+     },
+     {
+      "at": "0x566937",
+      "fn": "0x55cd50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x566945",
+      "vcall": "0x74",
+      "obj": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0056b610",
+    "ns": "GeometryTemplate",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x911088",
+    "vtable": "0x80f518",
+    "exec": "0x56b8e0",
+    "calls": [
+     {
+      "at": "0x56b8ef",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56b8fb",
+      "vcall": "0x54",
+      "obj": null
+     },
+     {
+      "at": "0x56b917",
+      "fn": "0x55ce10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x56b925",
+      "vcall": "0x50",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "heatShimmer.depthClipValue": {
+  "command": "heatShimmer.depthClipValue",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.duScale": {
+  "command": "heatShimmer.duScale",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.dvScale": {
+  "command": "heatShimmer.dvScale",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.enable": {
+  "command": "heatShimmer.enable",
+  "candidates": 9,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.freqY": {
+  "command": "heatShimmer.freqY",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.loadShimmerMap": {
+  "command": "heatShimmer.loadShimmerMap",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.lumScale": {
+  "command": "heatShimmer.lumScale",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.magY": {
+  "command": "heatShimmer.magY",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.shimmerTileEnable": {
+  "command": "heatShimmer.shimmerTileEnable",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.translateX": {
+  "command": "heatShimmer.translateX",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "heatShimmer.translateY": {
+  "command": "heatShimmer.translateY",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "HotSpot.addHotSpot": {
+  "command": "HotSpot.addHotSpot",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00461070",
+    "ns": "HotSpot",
+    "type": "std::string",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x870e58",
+    "vtable": "0x8053e0",
+    "exec": "0x461350",
+    "calls": [
+     {
+      "at": "0x46139a",
+      "fn": "0x46a480",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x4613a5",
+      "fn": "0x46a480",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x4613cf",
+      "fn": "0x409d60",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x4613fe",
+      "fn": "0x40ad30",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x46142c",
+      "fn": "0x40ad10",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x46143d",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x461444",
+      "fn": "0x4e1c20",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x46146d",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.billboardFadeScale": {
+  "command": "HotSpot.billboardFadeScale",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00464b10",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8687c0",
+    "vtable": "0x805ac8",
+    "exec": "0x464de0",
+    "calls": [
+     {
+      "at": "0x464df0",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464df7",
+      "fn": "0x4e2210",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464e18",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464e1f",
+      "fn": "0x4e2200",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.billboardLODScale": {
+  "command": "HotSpot.billboardLODScale",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004647c0",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8688c0",
+    "vtable": "0x805a60",
+    "exec": "0x464a90",
+    "calls": [
+     {
+      "at": "0x464aa0",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464aa7",
+      "fn": "0x4e21f0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464ac8",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464acf",
+      "fn": "0x4e21e0",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.enable": {
+  "command": "HotSpot.enable",
+  "candidates": 9,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004609d0",
+    "ns": "HotSpot",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x870640",
+    "vtable": "0x805310",
+    "exec": "0x460ca0",
+    "calls": [
+     {
+      "at": "0x460cb0",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x460cb7",
+      "fn": "0x4e1210",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x460cda",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x460ce1",
+      "fn": "0x7ebb00",
+      "obj": null,
+      "field": [
+       "0x10",
+       "undefined1 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.fade": {
+  "command": "HotSpot.fade",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00463090",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8712d8",
+    "vtable": "0x805788",
+    "exec": "0x463360",
+    "calls": [
+     {
+      "at": "0x463370",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463377",
+      "fn": "0x4e2110",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463398",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x46339f",
+      "fn": "0x4e2100",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.horizontalHOGDistance": {
+  "command": "HotSpot.horizontalHOGDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00464120",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x871cf8",
+    "vtable": "0x805990",
+    "exec": "0x4643f0",
+    "calls": [
+     {
+      "at": "0x464400",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464407",
+      "fn": "0x4e21b0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464428",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x46442f",
+      "fn": "0x4e21a0",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.mergeMeshViewDistance": {
+  "command": "HotSpot.mergeMeshViewDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00465500",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x868840",
+    "vtable": "0x805c00",
+    "exec": "0x4657d0",
+    "calls": [
+     {
+      "at": "0x4657e0",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x4657e7",
+      "fn": "0x4e2230",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x465808",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x46580f",
+      "fn": "0x4e2220",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.objectCullConst": {
+  "command": "HotSpot.objectCullConst",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00463a80",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8714e8",
+    "vtable": "0x8058c0",
+    "exec": "0x463d50",
+    "calls": [
+     {
+      "at": "0x463d60",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463d67",
+      "fn": "0x4e2170",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463d88",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463d8f",
+      "fn": "0x4e2160",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.objectCullFade": {
+  "command": "HotSpot.objectCullFade",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00464e60",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8686c0",
+    "vtable": "0x805b30",
+    "exec": "0x465130",
+    "calls": [
+     {
+      "at": "0x465140",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x465147",
+      "fn": "0x4e2250",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x465168",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x46516f",
+      "fn": "0x4e2240",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.objectDistanceFade": {
+  "command": "HotSpot.objectDistanceFade",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004651b0",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x871af8",
+    "vtable": "0x805b98",
+    "exec": "0x465480",
+    "calls": [
+     {
+      "at": "0x465490",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x465497",
+      "fn": "0x4e2270",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x4654b8",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x4654bf",
+      "fn": "0x4e2260",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.objectDistanceVariation": {
+  "command": "HotSpot.objectDistanceVariation",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00465850",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x868740",
+    "vtable": "0x805c68",
+    "exec": "0x465b30",
+    "calls": [
+     {
+      "at": "0x465b40",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x465b47",
+      "fn": "0x4e2290",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x465b68",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x465b6f",
+      "fn": "0x4e2280",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.objectMinCullDistance": {
+  "command": "HotSpot.objectMinCullDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00463dd0",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x871258",
+    "vtable": "0x805928",
+    "exec": "0x4640a0",
+    "calls": [
+     {
+      "at": "0x4640b0",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x4640b7",
+      "fn": "0x4e2190",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x4640d8",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x4640df",
+      "fn": "0x4e2180",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.objectViewDistance": {
+  "command": "HotSpot.objectViewDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004633e0",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x871d78",
+    "vtable": "0x8057f0",
+    "exec": "0x4636b0",
+    "calls": [
+     {
+      "at": "0x4636c0",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x4636c7",
+      "fn": "0x4e2130",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x4636e8",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x4636ef",
+      "fn": "0x4e2120",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.removeAll": {
+  "command": "HotSpot.removeAll",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00461b90",
+    "ns": "HotSpot",
+    "type": "void",
+    "kind": 0,
+    "minArgs": 0,
+    "maxArgs": 0,
+    "descriptor": "0x871768",
+    "vtable": "0x805518",
+    "exec": "0x461d40",
+    "calls": [
+     {
+      "at": "0x461d4b",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x461d52",
+      "fn": "0x4e10f0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.splineDistance": {
+  "command": "HotSpot.splineDistance",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004629f0",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8716e8",
+    "vtable": "0x8056b8",
+    "exec": "0x462cc0",
+    "calls": [
+     {
+      "at": "0x462cd0",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x462cd7",
+      "fn": "0x4e20d0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x462cf8",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x462cff",
+      "fn": "0x4e20c0",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.trackViewDistance": {
+  "command": "HotSpot.trackViewDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00463730",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x871bf8",
+    "vtable": "0x805858",
+    "exec": "0x463a00",
+    "calls": [
+     {
+      "at": "0x463a10",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463a17",
+      "fn": "0x4e2150",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463a38",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463a3f",
+      "fn": "0x4e2140",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.verticalHOGDistance": {
+  "command": "HotSpot.verticalHOGDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00464470",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x871b78",
+    "vtable": "0x8059f8",
+    "exec": "0x464740",
+    "calls": [
+     {
+      "at": "0x464750",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464757",
+      "fn": "0x4e21d0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x464778",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x46477f",
+      "fn": "0x4e21c0",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "HotSpot.width": {
+  "command": "HotSpot.width",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00462d40",
+    "ns": "HotSpot",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x871568",
+    "vtable": "0x805720",
+    "exec": "0x463010",
+    "calls": [
+     {
+      "at": "0x463020",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463027",
+      "fn": "0x4e20f0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x463048",
+      "fn": "0x415100",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x46304f",
+      "fn": "0x4e20e0",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "mergeMesh.sideScreenAlphaRef": {
+  "command": "mergeMesh.sideScreenAlphaRef",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0042f470",
+    "ns": "MergeMesh",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86b260",
+    "vtable": "0x7ffb50",
+    "exec": "0x42f740",
+    "calls": [
+     {
+      "at": "0x42f756",
+      "fn": "0x40f710",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x42f77d",
+      "fn": "0x40f6b0",
+      "obj": "0x868558",
+      "field": [
+       "0xa0",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "mergeMesh.sideScreenFade": {
+  "command": "mergeMesh.sideScreenFade",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0042f120",
+    "ns": "MergeMesh",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86a330",
+    "vtable": "0x7ffae8",
+    "exec": "0x42f3f0",
+    "calls": [
+     {
+      "at": "0x42f406",
+      "fn": "0x40f6a0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x42f42d",
+      "fn": "0x40f640",
+      "obj": "0x868558",
+      "field": [
+       "0x9c",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "mergeMesh.sideScreenViewDistance": {
+  "command": "mergeMesh.sideScreenViewDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0042edd0",
+    "ns": "MergeMesh",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86a430",
+    "vtable": "0x7ffa80",
+    "exec": "0x42f0a0",
+    "calls": [
+     {
+      "at": "0x42f0b6",
+      "fn": "0x40f630",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x42f0dd",
+      "fn": "0x40f5d0",
+      "obj": "0x868558",
+      "field": [
+       "0x98",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "object.absolutePosition": {
+  "command": "object.absolutePosition",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006b6c20",
+    "ns": "Object",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x933be8",
+    "vtable": "0x8248b0",
+    "exec": "0x6b6f40",
+    "calls": [
+     {
+      "at": "0x6b6f59",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b6f60",
+      "vcall": "0x28",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b6fa7",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b6fb3",
+      "vcall": "0x2c",
+      "obj": "0x9347f4"
+     }
+    ]
+   }
+  ]
+ },
+ "object.activ": {
+  "command": "object.activ",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "object.active": {
+  "command": "object.active",
+  "candidates": 6,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006e8bb0",
+    "ns": "Object",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x936130",
+    "vtable": "0x826c40",
+    "exec": "0x6e8e80",
+    "calls": [
+     {
+      "at": "0x6e8e97",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6e8eb4",
+      "fn": "0x6fac60",
+      "obj": "0x9347f4",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Object.create": {
+  "command": "Object.create",
+  "candidates": 4,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006e84e0",
+    "ns": "Object",
+    "type": "Vec3",
+    "kind": 0,
+    "minArgs": 0,
+    "maxArgs": 3,
+    "descriptor": "0x9360a8",
+    "vtable": "0x826bd8",
+    "exec": "0x6e8a70",
+    "calls": [
+     {
+      "at": "0x6e8a8b",
+      "vcall": "0x40",
+      "obj": "0x9347f8"
+     },
+     {
+      "at": "0x6e8a94",
+      "fn": "0x6f8db0",
+      "obj": "0x9347f8",
+      "field": null
+     },
+     {
+      "at": "0x6e8abd",
+      "fn": "0x6f8db0",
+      "obj": "0x9347f8",
+      "field": null
+     },
+     {
+      "at": "0x6e8afe",
+      "fn": "0x6f8e00",
+      "obj": "0x9347f8",
+      "field": null
+     },
+     {
+      "at": "0x6e8b5b",
+      "fn": "0x6f8e40",
+      "obj": "0x9347f8",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "object.cullFade": {
+  "command": "object.cullFade",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0043a060",
+    "ns": "Object",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86cfd0",
+    "vtable": "0x800f38",
+    "exec": "0x43a330",
+    "calls": [
+     {
+      "at": "0x43a346",
+      "fn": "0x40f400",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x43a36d",
+      "fn": "0x40f3a0",
+      "obj": "0x868558",
+      "field": [
+       "0x84",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Object.distanceFade": {
+  "command": "Object.distanceFade",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00439d10",
+    "ns": "Object",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86d1d0",
+    "vtable": "0x800ed0",
+    "exec": "0x439fe0",
+    "calls": [
+     {
+      "at": "0x439ff6",
+      "fn": "0x40f390",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x43a01d",
+      "fn": "0x40f330",
+      "obj": "0x868558",
+      "field": [
+       "0x80",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Object.isSaveable": {
+  "command": "Object.isSaveable",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006b8d90",
+    "ns": "Object",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9342a8",
+    "vtable": "0x824bf0",
+    "exec": "0x6b9090",
+    "calls": [
+     {
+      "at": "0x6b90b0",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b90c5",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b90fe",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b9117",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b9127",
+      "vcall": "0x1c",
+      "obj": "0x9347b4"
+     },
+     {
+      "at": "0x6b913a",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b914a",
+      "vcall": "0x1c",
+      "obj": "0x9347b4"
+     }
+    ]
+   }
+  ]
+ },
+ "Object.name": {
+  "command": "Object.name",
+  "candidates": 6,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006b66f0",
+    "ns": "Object",
+    "type": "std::string",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x933cf0",
+    "vtable": "0x824848",
+    "exec": "0x6b69f0",
+    "calls": [
+     {
+      "at": "0x6b6a12",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b6a19",
+      "vcall": "0x20",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b6a37",
+      "fn": "0x46a480",
+      "obj": "0x9347f4",
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6b6a42",
+      "fn": "0x46a480",
+      "obj": "0x9347f4",
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6b6a6f",
+      "fn": "0x409d60",
+      "obj": "0x9347f4",
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6b6aa1",
+      "fn": "0x40ad30",
+      "obj": "0x9347f4",
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6b6ace",
+      "fn": "0x40ad10",
+      "obj": "0x9347f4",
+      "field": null
+     },
+     {
+      "at": "0x6b6aff",
+      "fn": "0x409ab0",
+      "obj": "0x9347f4",
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6b6b10",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b6b1c",
+      "vcall": "0x24",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b6b41",
+      "fn": "0x500b50",
+      "obj": "0x9347f4",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Object.ObjectViewDistance": {
+  "command": "Object.ObjectViewDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": []
+ },
+ "object.rotation": {
+  "command": "object.rotation",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006b6ff0",
+    "ns": "Object",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x933ae0",
+    "vtable": "0x824918",
+    "exec": "0x6b7330",
+    "calls": [
+     {
+      "at": "0x6b7352",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b7367",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b7379",
+      "vcall": "0x8",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b7386",
+      "vcall": "0x78",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b7391",
+      "vcall": "0x70",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b739a",
+      "vcall": "0x30",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b73a3",
+      "fn": "0x6bfb50",
+      "obj": "0x9347f4",
+      "field": null
+     },
+     {
+      "at": "0x6b73f6",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b740b",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b741d",
+      "vcall": "0x8",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b742a",
+      "vcall": "0x78",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b7435",
+      "vcall": "0x70",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b743e",
+      "vcall": "0x30",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b74a6",
+      "fn": "0x49e320",
+      "obj": "0x9347f4",
+      "field": null
+     },
+     {
+      "at": "0x6b74bb",
+      "fn": "0x49e320",
+      "obj": "0x9347f4",
+      "field": null
+     },
+     {
+      "at": "0x6b74df",
+      "fn": "0x401e60",
+      "obj": "0x9347f4",
+      "field": null
+     },
+     {
+      "at": "0x6b74ed",
+      "fn": "0x49e6e0",
+      "obj": "0x9347f4",
+      "field": null
+     },
+     {
+      "at": "0x6b7500",
+      "fn": "0x5d5940",
+      "obj": "0x9347f4",
+      "field": null
+     },
+     {
+      "at": "0x6b750e",
+      "vcall": "0x8",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b751c",
+      "vcall": "0x78",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b752c",
+      "vcall": "0x74",
+      "obj": "0x9347f4"
+     },
+     {
+      "at": "0x6b7544",
+      "vcall": "0x34",
+      "obj": "0x9347f4"
+     }
+    ]
+   }
+  ]
+ },
+ "object.setOcclusionQuadWidthHeight": {
+  "command": "object.setOcclusionQuadWidthHeight",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00785590",
+    "ns": "Object",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x944aa8",
+    "vtable": "0x833c60",
+    "exec": "0x7858f0",
+    "calls": [
+     {
+      "at": "0x785919",
+      "fn": "0x785200",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x785920",
+      "fn": "0x78bad0",
+      "obj": null,
+      "field": [
+       "0x5c",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Object.viewDistance": {
+  "command": "Object.viewDistance",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004399c0",
+    "ns": "Object",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86d450",
+    "vtable": "0x800e68",
+    "exec": "0x439c90",
+    "calls": [
+     {
+      "at": "0x439ca6",
+      "fn": "0x40f320",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x439ccd",
+      "fn": "0x40f2c0",
+      "obj": "0x868558",
+      "field": [
+       "0x7c",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectDrawer.defaultNumberSlices": {
+  "command": "ObjectDrawer.defaultNumberSlices",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006e6860",
+    "ns": "ObjectDrawer",
+    "type": "uint",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x935ad8",
+    "vtable": "0x826898",
+    "exec": "0x6e6b30",
+    "calls": []
+   }
+  ]
+ },
+ "ObjectDrawer.distanceCullConst": {
+  "command": "ObjectDrawer.distanceCullConst",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006e61f0",
+    "ns": "ObjectDrawer",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9358d8",
+    "vtable": "0x8267c8",
+    "exec": "0x6e64c0",
+    "calls": []
+   }
+  ]
+ },
+ "ObjectDrawer.minCullDistance": {
+  "command": "ObjectDrawer.minCullDistance",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006e6520",
+    "ns": "ObjectDrawer",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x935648",
+    "vtable": "0x826830",
+    "exec": "0x6e67f0",
+    "calls": []
+   }
+  ]
+ },
+ "ObjectDrawer.viewDistanceVariation": {
+  "command": "ObjectDrawer.viewDistanceVariation",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006e6ec0",
+    "ns": "ObjectDrawer",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9359d8",
+    "vtable": "0x826968",
+    "exec": "0x6e7190",
+    "calls": []
+   }
+  ]
+ },
+ "ObjectTemplate.active": {
+  "command": "ObjectTemplate.active",
+  "candidates": 6,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006ebc00",
+    "ns": "ObjectTemplate",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x936230",
+    "vtable": "0x827120",
+    "exec": "0x6ebfe0",
+    "calls": [
+     {
+      "at": "0x6ebff7",
+      "vcall": "0x40",
+      "obj": "0x9347f8"
+     },
+     {
+      "at": "0x6ec014",
+      "fn": "0x6fa7f0",
+      "obj": "0x9347f8",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.colorRGBAOverTime": {
+  "command": "ObjectTemplate.colorRGBAOverTime",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00777400",
+    "ns": "ObjectTemplate",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x941228",
+    "vtable": "0x809e30",
+    "exec": "0x5d97c0",
+    "calls": []
+   }
+  ]
+ },
+ "ObjectTemplate.create": {
+  "command": "ObjectTemplate.create",
+  "candidates": 4,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006baf50",
+    "ns": "ObjectTemplate",
+    "type": "std::string",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x9345a8",
+    "vtable": "0x824f98",
+    "exec": "0x6bb2e0",
+    "calls": [
+     {
+      "at": "0x6bb310",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6bb332",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6bb350",
+      "vcall": "0x48",
+      "obj": "0x9347f8"
+     },
+     {
+      "at": "0x6bb371",
+      "fn": "0x500b50",
+      "obj": "0x9347f8",
+      "field": null
+     },
+     {
+      "at": "0x6bb3a7",
+      "fn": "0x500b50",
+      "obj": "0x9347f8",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.enable": {
+  "command": "ObjectTemplate.enable",
+  "candidates": 9,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077fab0",
+    "ns": "ObjectTemplate",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x944c28",
+    "vtable": "0x8331d0",
+    "exec": "0x77fda0",
+    "calls": [
+     {
+      "at": "0x77fdb4",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77fddd",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.initLensFlares": {
+  "command": "ObjectTemplate.initLensFlares",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077ec00",
+    "ns": "ObjectTemplate",
+    "type": "void",
+    "kind": 0,
+    "minArgs": 0,
+    "maxArgs": 0,
+    "descriptor": "0x944b28",
+    "vtable": "0x832fc8",
+    "exec": "0x77edb0",
+    "calls": [
+     {
+      "at": "0x77edc1",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77edc8",
+      "fn": "0x791110",
+      "obj": "0x824780",
+      "field": [
+       "0x7c",
+       "int *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.intensity": {
+  "command": "ObjectTemplate.intensity",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0076b790",
+    "ns": "ObjectTemplate",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x940e70",
+    "vtable": "0x830f48",
+    "exec": "0x76bad0",
+    "calls": [
+     {
+      "at": "0x76bae9",
+      "fn": "0x6c0090",
+      "obj": "0x824778",
+      "field": null
+     },
+     {
+      "at": "0x76bb26",
+      "fn": "0x6c0090",
+      "obj": "0x824778",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setActive": {
+  "command": "ObjectTemplate.setActive",
+  "candidates": 0,
+  "via": "set-prefix stripped -> ObjectTemplate.Active",
+  "matches": [
+   {
+    "reg": "FUN_006ebc00",
+    "ns": "ObjectTemplate",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x936230",
+    "vtable": "0x827120",
+    "exec": "0x6ebfe0",
+    "calls": [
+     {
+      "at": "0x6ebff7",
+      "vcall": "0x40",
+      "obj": "0x9347f8"
+     },
+     {
+      "at": "0x6ec014",
+      "fn": "0x6fa7f0",
+      "obj": "0x9347f8",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setCoronaColor": {
+  "command": "ObjectTemplate.setCoronaColor",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077cf80",
+    "ns": "ObjectTemplate",
+    "type": "Vec4",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x944518",
+    "vtable": "0x832c20",
+    "exec": "0x77d380",
+    "calls": [
+     {
+      "at": "0x77d3b7",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77d3be",
+      "fn": "0x791260",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setCoronaColor2": {
+  "command": "ObjectTemplate.setCoronaColor2",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077d400",
+    "ns": "ObjectTemplate",
+    "type": "Vec4",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x944fa8",
+    "vtable": "0x832c88",
+    "exec": "0x77d800",
+    "calls": [
+     {
+      "at": "0x77d837",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77d83e",
+      "fn": "0x7912a0",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setCoronaCount": {
+  "command": "ObjectTemplate.setCoronaCount",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077df70",
+    "ns": "ObjectTemplate",
+    "type": "void",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x944618",
+    "vtable": "0x832dc0",
+    "exec": "0x77e240",
+    "calls": [
+     {
+      "at": "0x77e256",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77e25d",
+      "fn": "0x7910f0",
+      "obj": "0x824780",
+      "field": [
+       "0x78",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setCoronaDestBlend": {
+  "command": "ObjectTemplate.setCoronaDestBlend",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "ObjectTemplate.setcoronafadeall": {
+  "command": "ObjectTemplate.setcoronafadeall",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "ObjectTemplate.setCoronaRot": {
+  "command": "ObjectTemplate.setCoronaRot",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077cbc0",
+    "ns": "ObjectTemplate",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x944698",
+    "vtable": "0x832bb8",
+    "exec": "0x77cf10",
+    "calls": [
+     {
+      "at": "0x77cf33",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77cf3a",
+      "fn": "0x791230",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setCoronaScale": {
+  "command": "ObjectTemplate.setCoronaScale",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "ObjectTemplate.setCoronaSize": {
+  "command": "ObjectTemplate.setCoronaSize",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077c320",
+    "ns": "ObjectTemplate",
+    "type": "Vec2",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x9449a8",
+    "vtable": "0x832ae8",
+    "exec": "0x77c6f0",
+    "calls": [
+     {
+      "at": "0x77c720",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77c727",
+      "fn": "0x7911d0",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setCoronasize2": {
+  "command": "ObjectTemplate.setCoronasize2",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077c770",
+    "ns": "ObjectTemplate",
+    "type": "Vec2",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x944820",
+    "vtable": "0x832b50",
+    "exec": "0x77cb40",
+    "calls": [
+     {
+      "at": "0x77cb70",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77cb77",
+      "fn": "0x791200",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setCoronaSrcBlend": {
+  "command": "ObjectTemplate.setCoronaSrcBlend",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "ObjectTemplate.setCoronaTexture": {
+  "command": "ObjectTemplate.setCoronaTexture",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077be70",
+    "ns": "ObjectTemplate",
+    "type": "std::string",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x942b00",
+    "vtable": "0x832a80",
+    "exec": "0x77c210",
+    "calls": [
+     {
+      "at": "0x77c23c",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x77c254",
+      "fn": "0x408650",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x77c25f",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77c266",
+      "fn": "0x791310",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77c28d",
+      "fn": "0x500b50",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setFlareColor": {
+  "command": "ObjectTemplate.setFlareColor",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077b1b0",
+    "ns": "ObjectTemplate",
+    "type": "Vec4",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x944718",
+    "vtable": "0x832948",
+    "exec": "0x77b5b0",
+    "calls": [
+     {
+      "at": "0x77b5e7",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77b5ee",
+      "fn": "0x791030",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "objectTemplate.setFlareColor2": {
+  "command": "objectTemplate.setFlareColor2",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077b630",
+    "ns": "ObjectTemplate",
+    "type": "Vec4",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x942e00",
+    "vtable": "0x8329b0",
+    "exec": "0x77ba30",
+    "calls": [
+     {
+      "at": "0x77ba67",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77ba6e",
+      "fn": "0x791070",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setFlareDestBlend": {
+  "command": "ObjectTemplate.setFlareDestBlend",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "ObjectTemplate.setFlareDistFadeScale": {
+  "command": "ObjectTemplate.setFlareDistFadeScale",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "ObjectTemplate.setFlareFade": {
+  "command": "ObjectTemplate.setFlareFade",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "ObjectTemplate.setflarefadeall": {
+  "command": "ObjectTemplate.setflarefadeall",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "objectTemplate.setFlareRot": {
+  "command": "objectTemplate.setFlareRot",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077adf0",
+    "ns": "ObjectTemplate",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x9448a0",
+    "vtable": "0x8328e0",
+    "exec": "0x77b140",
+    "calls": [
+     {
+      "at": "0x77b163",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77b16a",
+      "fn": "0x791010",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setFlareScale": {
+  "command": "ObjectTemplate.setFlareScale",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "ObjectTemplate.setFlareSize": {
+  "command": "ObjectTemplate.setFlareSize",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077a550",
+    "ns": "ObjectTemplate",
+    "type": "Vec2",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x942b80",
+    "vtable": "0x832810",
+    "exec": "0x77a920",
+    "calls": [
+     {
+      "at": "0x77a950",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77a957",
+      "fn": "0x790fb0",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setFlaresize2": {
+  "command": "ObjectTemplate.setFlaresize2",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077a9a0",
+    "ns": "ObjectTemplate",
+    "type": "Vec2",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x944a28",
+    "vtable": "0x832878",
+    "exec": "0x77ad70",
+    "calls": [
+     {
+      "at": "0x77ada0",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77ada7",
+      "fn": "0x790fe0",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setFlareSrcBlend": {
+  "command": "ObjectTemplate.setFlareSrcBlend",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "objectTemplate.setFlareTexture": {
+  "command": "objectTemplate.setFlareTexture",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077a0a0",
+    "ns": "ObjectTemplate",
+    "type": "std::string",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x942d00",
+    "vtable": "0x8327a8",
+    "exec": "0x77a440",
+    "calls": [
+     {
+      "at": "0x77a46c",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x77a484",
+      "fn": "0x408650",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x77a48f",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77a496",
+      "fn": "0x790e10",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77a4bd",
+      "fn": "0x500b50",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setIsSun": {
+  "command": "ObjectTemplate.setIsSun",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077e2a0",
+    "ns": "ObjectTemplate",
+    "type": "bool",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x944498",
+    "vtable": "0x832e28",
+    "exec": "0x77e570",
+    "calls": [
+     {
+      "at": "0x77e586",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setLensFlareCount": {
+  "command": "ObjectTemplate.setLensFlareCount",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077dc40",
+    "ns": "ObjectTemplate",
+    "type": "void",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x944d28",
+    "vtable": "0x832d58",
+    "exec": "0x77df10",
+    "calls": [
+     {
+      "at": "0x77df26",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77df2d",
+      "fn": "0x7910d0",
+      "obj": "0x824780",
+      "field": [
+       "0x70",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setOcclusionQuadWidthHeight": {
+  "command": "ObjectTemplate.setOcclusionQuadWidthHeight",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0077ee00",
+    "ns": "ObjectTemplate",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x9451b0",
+    "vtable": "0x833030",
+    "exec": "0x77f150",
+    "calls": [
+     {
+      "at": "0x77f17f",
+      "fn": "0x6c0090",
+      "obj": "0x824780",
+      "field": null
+     },
+     {
+      "at": "0x77f186",
+      "fn": "0x791170",
+      "obj": "0x824780",
+      "field": [
+       "0x88",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.setVisibilityAngleDeg": {
+  "command": "ObjectTemplate.setVisibilityAngleDeg",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "ObjectTemplate.timeToLive": {
+  "command": "ObjectTemplate.timeToLive",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0076b290",
+    "ns": "ObjectTemplate",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9400a0",
+    "vtable": "0x830ee0",
+    "exec": "0x76b6e0",
+    "calls": [
+     {
+      "at": "0x76b6f9",
+      "fn": "0x6c0090",
+      "obj": "0x824778",
+      "field": null
+     },
+     {
+      "at": "0x76b733",
+      "fn": "0x6c0090",
+      "obj": "0x824778",
+      "field": null
+     }
+    ]
+   },
+   {
+    "reg": "FUN_0076fa80",
+    "ns": "ObjectTemplate",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x940f98",
+    "vtable": "0x831698",
+    "exec": "0x76fdc0",
+    "calls": [
+     {
+      "at": "0x76fdd9",
+      "fn": "0x6c0090",
+      "obj": "0x824790",
+      "field": null
+     },
+     {
+      "at": "0x76fe16",
+      "fn": "0x6c0090",
+      "obj": "0x824790",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ObjectTemplate.varianceColor": {
+  "command": "ObjectTemplate.varianceColor",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0076ec70",
+    "ns": "ObjectTemplate",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x940b20",
+    "vtable": "0x8314f8",
+    "exec": "0x76efb0",
+    "calls": [
+     {
+      "at": "0x76efc9",
+      "fn": "0x6c0090",
+      "obj": "0x824790",
+      "field": null
+     },
+     {
+      "at": "0x76f009",
+      "fn": "0x6c0090",
+      "obj": "0x824790",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "ParticleSystem.enableParticles": {
+  "command": "ParticleSystem.enableParticles",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_007834c0",
+    "ns": "ParticleSystem",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x942768",
+    "vtable": "0x833850",
+    "exec": "0x783790",
+    "calls": []
+   }
+  ]
+ },
+ "ParticleSystem.globalParticleColor": {
+  "command": "ParticleSystem.globalParticleColor",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_007844c0",
+    "ns": "ParticleSystem",
+    "type": "Vec4",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x942a70",
+    "vtable": "0x833a58",
+    "exec": "0x7847f0",
+    "calls": []
+   }
+  ]
+ },
+ "ParticleSystem.maxParticles": {
+  "command": "ParticleSystem.maxParticles",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00783800",
+    "ns": "ParticleSystem",
+    "type": "uint",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9425e8",
+    "vtable": "0x8338b8",
+    "exec": "0x783ad0",
+    "calls": []
+   }
+  ]
+ },
+ "race.addReplayCamera": {
+  "command": "race.addReplayCamera",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004436e0",
+    "ns": "Race",
+    "type": "Vec3",
+    "kind": 0,
+    "minArgs": 7,
+    "maxArgs": 7,
+    "descriptor": "0x8700b0",
+    "vtable": "0x801ea8",
+    "exec": "0x443c50",
+    "calls": [
+     {
+      "at": "0x443cd5",
+      "vcall": "0xc",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x443ce1",
+      "vcall": "0x8",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x443cec",
+      "vcall": "0x10",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x443d16",
+      "vcall": "0x9c",
+      "obj": "0x86846c"
+     }
+    ]
+   }
+  ]
+ },
+ "race.numHumanPlayers": {
+  "command": "race.numHumanPlayers",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0043f370",
+    "ns": "Race",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86e918",
+    "vtable": "0x8017c0",
+    "exec": "0x43f640",
+    "calls": [
+     {
+      "at": "0x43f65a",
+      "vcall": "0xc",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x43f666",
+      "vcall": "0x8",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x43f671",
+      "vcall": "0x10",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x43f67b",
+      "vcall": "0x28",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x43f68d",
+      "vcall": "0x28",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x43f6b1",
+      "vcall": "0xc",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x43f6bd",
+      "vcall": "0x8",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x43f6c8",
+      "vcall": "0x10",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x43f6d0",
+      "vcall": "0x24",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x43f6df",
+      "vcall": "0x24",
+      "obj": "0x86846c"
+     }
+    ]
+   }
+  ]
+ },
+ "race.ReplayCameraSystemMode": {
+  "command": "race.ReplayCameraSystemMode",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00443330",
+    "ns": "Race",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86c740",
+    "vtable": "0x801e40",
+    "exec": "0x443600",
+    "calls": [
+     {
+      "at": "0x44361a",
+      "vcall": "0xc",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x443626",
+      "vcall": "0x8",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x443631",
+      "vcall": "0x10",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x44363f",
+      "vcall": "0x98",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x443666",
+      "vcall": "0xc",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x443672",
+      "vcall": "0x8",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x44367d",
+      "vcall": "0x10",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x443685",
+      "vcall": "0x94",
+      "obj": "0x86846c"
+     },
+     {
+      "at": "0x443697",
+      "vcall": "0x94",
+      "obj": "0x86846c"
+     }
+    ]
+   }
+  ]
+ },
+ "renderer.fieldOfView": {
+  "command": "renderer.fieldOfView",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0043a730",
+    "ns": "Renderer",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86d3d0",
+    "vtable": "0x801008",
+    "exec": "0x43aa00",
+    "calls": [
+     {
+      "at": "0x43aa16",
+      "fn": "0x4106e0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x43aa3d",
+      "fn": "0x410680",
+      "obj": "0x868558",
+      "field": [
+       "0x1dc",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "skidMark.setColor": {
+  "command": "skidMark.setColor",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00781550",
+    "ns": "skidMark",
+    "type": "Vec3",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x942158",
+    "vtable": "0x833510",
+    "exec": "0x781930",
+    "calls": [
+     {
+      "at": "0x781967",
+      "fn": "0x787280",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "skidMark.setIntensityClamp": {
+  "command": "skidMark.setIntensityClamp",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00782d80",
+    "ns": "skidMark",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x942868",
+    "vtable": "0x833780",
+    "exec": "0x7830d0",
+    "calls": [
+     {
+      "at": "0x7830f2",
+      "fn": "0x787420",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "skidMark.setMaterialSkidMarkExtraWidth": {
+  "command": "skidMark.setMaterialSkidMarkExtraWidth",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_007824f0",
+    "ns": "skidMark",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x9421d8",
+    "vtable": "0x8336b0",
+    "exec": "0x782840",
+    "calls": [
+     {
+      "at": "0x782862",
+      "fn": "0x787400",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Sky.addCloud": {
+  "command": "Sky.addCloud",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053c0e0",
+    "ns": "Sky",
+    "type": "void",
+    "kind": 0,
+    "minArgs": 0,
+    "maxArgs": 0,
+    "descriptor": "0x8ed2e0",
+    "vtable": "0x80b438",
+    "exec": "0x53c290",
+    "calls": [
+     {
+      "at": "0x53c2a1",
+      "fn": "0x547940",
+      "obj": "0x8eec48",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Sky.changeOfsCloudDist": {
+  "command": "Sky.changeOfsCloudDist",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053d120",
+    "ns": "Sky",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8ed9e0",
+    "vtable": "0x80b710",
+    "exec": "0x53d3f0",
+    "calls": [
+     {
+      "at": "0x53d40d",
+      "fn": "0x547870",
+      "obj": "0x8eec48",
+      "field": [
+       "0x14",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Sky.changeOfsCloudHeight": {
+  "command": "Sky.changeOfsCloudHeight",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053d450",
+    "ns": "Sky",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8ed8e0",
+    "vtable": "0x80b778",
+    "exec": "0x53d720",
+    "calls": [
+     {
+      "at": "0x53d73d",
+      "fn": "0x547860",
+      "obj": "0x8eec48",
+      "field": [
+       "0x10",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "sky.changeOfsRndTexPos": {
+  "command": "sky.changeOfsRndTexPos",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053d780",
+    "ns": "Sky",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8ed7e0",
+    "vtable": "0x80b7e0",
+    "exec": "0x53da50",
+    "calls": [
+     {
+      "at": "0x53da6d",
+      "fn": "0x547880",
+      "obj": "0x8eec48",
+      "field": [
+       "0x44",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "sky.changeOfsSkyHeight": {
+  "command": "sky.changeOfsSkyHeight",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053ce00",
+    "ns": "Sky",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8ed260",
+    "vtable": "0x80b6a8",
+    "exec": "0x53d0d0",
+    "calls": []
+   }
+  ]
+ },
+ "Sky.initSky": {
+  "command": "Sky.initSky",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053bed0",
+    "ns": "Sky",
+    "type": "void",
+    "kind": 0,
+    "minArgs": 0,
+    "maxArgs": 0,
+    "descriptor": "0x8ed360",
+    "vtable": "0x80b3d0",
+    "exec": "0x53c090",
+    "calls": [
+     {
+      "at": "0x53c0a1",
+      "fn": "0x547c40",
+      "obj": "0x8eec48",
+      "field": [
+       "0x30",
+       "undefined1 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "sky.setRotAngle": {
+  "command": "sky.setRotAngle",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053dab0",
+    "ns": "Sky",
+    "type": "float",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8ed6e0",
+    "vtable": "0x80b848",
+    "exec": "0x53dd80",
+    "calls": []
+   }
+  ]
+ },
+ "Sky.setSun": {
+  "command": "Sky.setSun",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053e700",
+    "ns": "Sky",
+    "type": "std::string",
+    "kind": 0,
+    "minArgs": 1,
+    "maxArgs": 1,
+    "descriptor": "0x8ed4e0",
+    "vtable": "0x80b980",
+    "exec": "0x53e9e0",
+    "calls": [
+     {
+      "at": "0x53ea0c",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x53ea30",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x53ea3b",
+      "fn": "0x548520",
+      "obj": "0x8eec48",
+      "field": null
+     },
+     {
+      "at": "0x53ea62",
+      "fn": "0x500b50",
+      "obj": "0x8eec48",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Sky.setSunLightDirectionVec": {
+  "command": "Sky.setSunLightDirectionVec",
+  "candidates": 0,
+  "via": "set-prefix stripped -> Sky.SunLightDirectionVec",
+  "matches": [
+   {
+    "reg": "FUN_0053eda0",
+    "ns": "Sky",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee0f0",
+    "vtable": "0x80ba50",
+    "exec": "0x53f0c0",
+    "calls": []
+   }
+  ]
+ },
+ "sky.sunLightDirectionVec": {
+  "command": "sky.sunLightDirectionVec",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0053eda0",
+    "ns": "Sky",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee0f0",
+    "vtable": "0x80ba50",
+    "exec": "0x53f0c0",
+    "calls": []
+   }
+  ]
+ },
+ "StandardMesh.lodDistanceScale": {
+  "command": "StandardMesh.lodDistanceScale",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00560340",
+    "ns": "standardMesh",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x910648",
+    "vtable": "0x80e0c8",
+    "exec": "0x560610",
+    "calls": [
+     {
+      "at": "0x560628",
+      "vcall": "0x60",
+      "obj": "0x90e848"
+     },
+     {
+      "at": "0x56064d",
+      "vcall": "0x5c",
+      "obj": "0x90e848"
+     }
+    ]
+   }
+  ]
+ },
+ "standardMesh.swayLodDistance": {
+  "command": "standardMesh.swayLodDistance",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00560d30",
+    "ns": "standardMesh",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x910a68",
+    "vtable": "0x80e200",
+    "exec": "0x561000",
+    "calls": [
+     {
+      "at": "0x561018",
+      "vcall": "0x50",
+      "obj": "0x90e848"
+     },
+     {
+      "at": "0x56103d",
+      "vcall": "0x4c",
+      "obj": "0x90e848"
+     }
+    ]
+   }
+  ]
+ },
+ "track.bumpEnable": {
+  "command": "track.bumpEnable",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064cbe0",
+    "ns": "Track",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x921e80",
+    "vtable": "0x81fcd0",
+    "exec": "0x64cec0",
+    "calls": [
+     {
+      "at": "0x64cecf",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64cedb",
+      "vcall": "0xc8",
+      "obj": null
+     },
+     {
+      "at": "0x64cefa",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64cf08",
+      "vcall": "0xc4",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "track.bumpHeight": {
+  "command": "track.bumpHeight",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00432180",
+    "ns": "Track",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86e110",
+    "vtable": "0x800098",
+    "exec": "0x432450",
+    "calls": [
+     {
+      "at": "0x432466",
+      "fn": "0x40f9e0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x43248d",
+      "fn": "0x40f980",
+      "obj": "0x868558",
+      "field": [
+       "0x60",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "track.bumpLightmapClamp": {
+  "command": "track.bumpLightmapClamp",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064da50",
+    "ns": "Track",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x922200",
+    "vtable": "0x81fe70",
+    "exec": "0x64dd40",
+    "calls": [
+     {
+      "at": "0x64dd51",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64dd5a",
+      "vcall": "0xe8",
+      "obj": null
+     },
+     {
+      "at": "0x64dd8d",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64dd9b",
+      "vcall": "0xe4",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "track.bumpLightmapEnable": {
+  "command": "track.bumpLightmapEnable",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064cf50",
+    "ns": "Track",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x922518",
+    "vtable": "0x81fd38",
+    "exec": "0x64d220",
+    "calls": [
+     {
+      "at": "0x64d22f",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64d23b",
+      "vcall": "0xd0",
+      "obj": null
+     },
+     {
+      "at": "0x64d25a",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64d268",
+      "vcall": "0xcc",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Track.bumpLightmapMax": {
+  "command": "Track.bumpLightmapMax",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064d680",
+    "ns": "Track",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x922308",
+    "vtable": "0x81fe08",
+    "exec": "0x64d9a0",
+    "calls": [
+     {
+      "at": "0x64d9b1",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64d9ba",
+      "vcall": "0xe0",
+      "obj": null
+     },
+     {
+      "at": "0x64d9fc",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64da0a",
+      "vcall": "0xdc",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "track.bumpLightmapmin": {
+  "command": "track.bumpLightmapmin",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064d2b0",
+    "ns": "Track",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x922410",
+    "vtable": "0x81fda0",
+    "exec": "0x64d5d0",
+    "calls": [
+     {
+      "at": "0x64d5e1",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64d5ea",
+      "vcall": "0xd8",
+      "obj": null
+     },
+     {
+      "at": "0x64d62c",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64d63a",
+      "vcall": "0xd4",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "track.fogClamp": {
+  "command": "track.fogClamp",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00431e30",
+    "ns": "Track",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86e390",
+    "vtable": "0x800030",
+    "exec": "0x432100",
+    "calls": [
+     {
+      "at": "0x432116",
+      "fn": "0x40f970",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x43213d",
+      "fn": "0x40f910",
+      "obj": "0x868558",
+      "field": [
+       "0x5c",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "track.fogColor": {
+  "command": "track.fogColor",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00431a70",
+    "ns": "Track",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86e590",
+    "vtable": "0x7fffc8",
+    "exec": "0x431d90",
+    "calls": [
+     {
+      "at": "0x431da7",
+      "fn": "0x40f900",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x431df3",
+      "fn": "0x40f880",
+      "obj": "0x868558",
+      "field": [
+       "0x40",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "Track.fogEnable": {
+  "command": "Track.fogEnable",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00431020",
+    "ns": "Track",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86b050",
+    "vtable": "0x7ffe90",
+    "exec": "0x4312f0",
+    "calls": [
+     {
+      "at": "0x431306",
+      "fn": "0x40f770",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x43132f",
+      "fn": "0x40f720",
+      "obj": "0x868558",
+      "field": [
+       "0x3c",
+       "char *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "track.fogRange": {
+  "command": "track.fogRange",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00431370",
+    "ns": "Track",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86ad40",
+    "vtable": "0x7ffef8",
+    "exec": "0x431660",
+    "calls": [
+     {
+      "at": "0x431677",
+      "fn": "0x40f860",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x4316b4",
+      "fn": "0x40f780",
+      "obj": "0x868558",
+      "field": [
+       "0x4c",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "track.fogRangeFixed": {
+  "command": "track.fogRangeFixed",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004316f0",
+    "ns": "Track",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86ac38",
+    "vtable": "0x7fff60",
+    "exec": "0x4319e0",
+    "calls": [
+     {
+      "at": "0x4319f7",
+      "fn": "0x40f870",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x431a34",
+      "fn": "0x40f7f0",
+      "obj": "0x868558",
+      "field": [
+       "0x54",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "track.lightmapLimit": {
+  "command": "track.lightmapLimit",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00432890",
+    "ns": "Track",
+    "type": "uint",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86f148",
+    "vtable": "0x800168",
+    "exec": "0x432b60",
+    "calls": [
+     {
+      "at": "0x432b75",
+      "fn": "0x40fad0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x432b95",
+      "fn": "0x40fa80",
+      "obj": "0x868558",
+      "field": [
+       "0x70",
+       "int *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "track.specularColor": {
+  "command": "track.specularColor",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_004324d0",
+    "ns": "Track",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86df00",
+    "vtable": "0x800100",
+    "exec": "0x4327f0",
+    "calls": [
+     {
+      "at": "0x432807",
+      "fn": "0x40fa70",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x432853",
+      "fn": "0x40f9f0",
+      "obj": "0x868558",
+      "field": [
+       "0x68",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "track.vertexPaintEnable": {
+  "command": "track.vertexPaintEnable",
+  "candidates": 0,
+  "via": null,
+  "matches": []
+ },
+ "Track.viewDistance": {
+  "command": "Track.viewDistance",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00430cd0",
+    "ns": "Track",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86e190",
+    "vtable": "0x7ffe28",
+    "exec": "0x430fa0",
+    "calls": [
+     {
+      "at": "0x430fb6",
+      "fn": "0x40f2b0",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x430fdd",
+      "fn": "0x40f250",
+      "obj": "0x868558",
+      "field": [
+       "0x38",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "treeMesh.billboardLightScale": {
+  "command": "treeMesh.billboardLightScale",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0055ed50",
+    "ns": "treeMesh",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9101c8",
+    "vtable": "0x80de58",
+    "exec": "0x55f020",
+    "calls": [
+     {
+      "at": "0x55f038",
+      "vcall": "0xb0",
+      "obj": "0x90e844"
+     },
+     {
+      "at": "0x55f060",
+      "vcall": "0xac",
+      "obj": "0x90e844"
+     }
+    ]
+   }
+  ]
+ },
+ "treeMesh.swayEnable": {
+  "command": "treeMesh.swayEnable",
+  "candidates": 5,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0055d970",
+    "ns": "treeMesh",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9100c8",
+    "vtable": "0x80dbe8",
+    "exec": "0x55dc40",
+    "calls": [
+     {
+      "at": "0x55dc58",
+      "vcall": "0x48",
+      "obj": "0x90e844"
+     },
+     {
+      "at": "0x55dc81",
+      "vcall": "0x44",
+      "obj": "0x90e844"
+     }
+    ]
+   }
+  ]
+ },
+ "treeMesh.swayLodDistance": {
+  "command": "treeMesh.swayLodDistance",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0055e010",
+    "ns": "treeMesh",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x90ffc8",
+    "vtable": "0x80dcb8",
+    "exec": "0x55e2e0",
+    "calls": [
+     {
+      "at": "0x55e2f8",
+      "vcall": "0x58",
+      "obj": "0x90e844"
+     },
+     {
+      "at": "0x55e31d",
+      "vcall": "0x54",
+      "obj": "0x90e844"
+     }
+    ]
+   }
+  ]
+ },
+ "Water.AnimationSpeed": {
+  "command": "Water.AnimationSpeed",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064f9e0",
+    "ns": "Water",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x923008",
+    "vtable": "0x820280",
+    "exec": "0x64fcb0",
+    "calls": [
+     {
+      "at": "0x64fcbf",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64fccb",
+      "vcall": "0xa0",
+      "obj": null
+     },
+     {
+      "at": "0x64fcea",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64fcf8",
+      "vcall": "0x9c",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.BaseScrollDirection": {
+  "command": "Water.BaseScrollDirection",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00650400",
+    "ns": "Water",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x922598",
+    "vtable": "0x8203b8",
+    "exec": "0x6506f0",
+    "calls": [
+     {
+      "at": "0x650701",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x65070a",
+      "vcall": "0xc0",
+      "obj": null
+     },
+     {
+      "at": "0x65073d",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x65074b",
+      "vcall": "0xbc",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.BaseScrollSpeed": {
+  "command": "Water.BaseScrollSpeed",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064fd40",
+    "ns": "Water",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9227a8",
+    "vtable": "0x8202e8",
+    "exec": "0x650010",
+    "calls": [
+     {
+      "at": "0x65001f",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x65002b",
+      "vcall": "0xa8",
+      "obj": null
+     },
+     {
+      "at": "0x65004a",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x650058",
+      "vcall": "0xa4",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.BaseTex": {
+  "command": "Water.BaseTex",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00650e70",
+    "ns": "Water",
+    "type": "std::string",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x922f78",
+    "vtable": "0x8204f0",
+    "exec": "0x651170",
+    "calls": [
+     {
+      "at": "0x651184",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x651192",
+      "vcall": "0x78",
+      "obj": null
+     },
+     {
+      "at": "0x65119e",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6511c5",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x6511f7",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x65121b",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x651220",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x651229",
+      "vcall": "0x74",
+      "obj": null
+     },
+     {
+      "at": "0x65124e",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.BaseTile": {
+  "command": "Water.BaseTile",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064f340",
+    "ns": "Water",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x923298",
+    "vtable": "0x8201b0",
+    "exec": "0x64f610",
+    "calls": [
+     {
+      "at": "0x64f61f",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64f62b",
+      "vcall": "0x68",
+      "obj": null
+     },
+     {
+      "at": "0x64f647",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64f655",
+      "vcall": "0x64",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.BumpScrollDirection": {
+  "command": "Water.BumpScrollDirection",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00650790",
+    "ns": "Water",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x923210",
+    "vtable": "0x820420",
+    "exec": "0x650a80",
+    "calls": [
+     {
+      "at": "0x650a91",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x650a9a",
+      "vcall": "0xb8",
+      "obj": null
+     },
+     {
+      "at": "0x650acd",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x650adb",
+      "vcall": "0xb4",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.BumpScrollSpeed": {
+  "command": "Water.BumpScrollSpeed",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006500a0",
+    "ns": "Water",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x9226a8",
+    "vtable": "0x820350",
+    "exec": "0x650370",
+    "calls": [
+     {
+      "at": "0x65037f",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x65038b",
+      "vcall": "0xb0",
+      "obj": null
+     },
+     {
+      "at": "0x6503aa",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x6503b8",
+      "vcall": "0xac",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.BumpTex": {
+  "command": "Water.BumpTex",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00651320",
+    "ns": "Water",
+    "type": "std::string",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x922e68",
+    "vtable": "0x820558",
+    "exec": "0x651620",
+    "calls": [
+     {
+      "at": "0x651634",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x651642",
+      "vcall": "0x80",
+      "obj": null
+     },
+     {
+      "at": "0x651651",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x651678",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x6516aa",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6516ce",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x6516d3",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x6516dc",
+      "vcall": "0x7c",
+      "obj": null
+     },
+     {
+      "at": "0x651701",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.BumpTile": {
+  "command": "Water.BumpTile",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064f690",
+    "ns": "Water",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x923190",
+    "vtable": "0x820218",
+    "exec": "0x64f960",
+    "calls": [
+     {
+      "at": "0x64f96f",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64f97b",
+      "vcall": "0x60",
+      "obj": null
+     },
+     {
+      "at": "0x64f997",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64f9a5",
+      "vcall": "0x5c",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.EnvIntensity": {
+  "command": "Water.EnvIntensity",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00650b20",
+    "ns": "Water",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x923110",
+    "vtable": "0x820488",
+    "exec": "0x650df0",
+    "calls": [
+     {
+      "at": "0x650dff",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x650e0b",
+      "vcall": "0x70",
+      "obj": null
+     },
+     {
+      "at": "0x650e27",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x650e35",
+      "vcall": "0x6c",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.EnvTex": {
+  "command": "Water.EnvTex",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_006517e0",
+    "ns": "Water",
+    "type": "std::string",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x923520",
+    "vtable": "0x8205c0",
+    "exec": "0x651ae0",
+    "calls": [
+     {
+      "at": "0x651af4",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x651b02",
+      "vcall": "0x88",
+      "obj": null
+     },
+     {
+      "at": "0x651b11",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x651b38",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x651b6a",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x651b8e",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x651b93",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x651b9c",
+      "vcall": "0x84",
+      "obj": null
+     },
+     {
+      "at": "0x651bc4",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "Water.SpecularColor": {
+  "command": "Water.SpecularColor",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0064ef70",
+    "ns": "Water",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x922620",
+    "vtable": "0x820148",
+    "exec": "0x64f290",
+    "calls": [
+     {
+      "at": "0x64f2a1",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64f2aa",
+      "vcall": "0x98",
+      "obj": null
+     },
+     {
+      "at": "0x64f2ec",
+      "fn": "0x647e60",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x64f2fa",
+      "vcall": "0x94",
+      "obj": null
+     }
+    ]
+   }
+  ]
+ },
+ "Weather.initWeather": {
+  "command": "Weather.initWeather",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00541b80",
+    "ns": "Weather",
+    "type": "void",
+    "kind": 0,
+    "minArgs": 0,
+    "maxArgs": 0,
+    "descriptor": "0x8edbe0",
+    "vtable": "0x80be60",
+    "exec": "0x541d40",
+    "calls": [
+     {
+      "at": "0x541d51",
+      "fn": "0x549c10",
+      "obj": "0x8eecb8",
+      "field": [
+       "0x10",
+       "int *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "world.fogColor": {
+  "command": "world.fogColor",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00430590",
+    "ns": "World",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86adc8",
+    "vtable": "0x7ffd58",
+    "exec": "0x4308b0",
+    "calls": [
+     {
+      "at": "0x4308c7",
+      "fn": "0x7e7930",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x430913",
+      "fn": "0x40f160",
+      "obj": "0x868558",
+      "field": [
+       "0x18",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "World.fogEnable": {
+  "command": "World.fogEnable",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0042fb40",
+    "ns": "World",
+    "type": "bool",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86a2b0",
+    "vtable": "0x7ffc20",
+    "exec": "0x42fe10",
+    "calls": [
+     {
+      "at": "0x42fe26",
+      "fn": "0x40f060",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x42fe4f",
+      "fn": "0x40f010",
+      "obj": "0x868558",
+      "field": [
+       "0x14",
+       "char *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "world.fogRange": {
+  "command": "world.fogRange",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_0042fe90",
+    "ns": "World",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86b1d8",
+    "vtable": "0x7ffc88",
+    "exec": "0x430180",
+    "calls": [
+     {
+      "at": "0x430197",
+      "fn": "0x5d9500",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x4301d4",
+      "fn": "0x40f070",
+      "obj": "0x868558",
+      "field": [
+       "0x24",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "world.fogRangeFixed": {
+  "command": "world.fogRangeFixed",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00430210",
+    "ns": "World",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x86b0d0",
+    "vtable": "0x7ffcf0",
+    "exec": "0x430500",
+    "calls": [
+     {
+      "at": "0x430517",
+      "fn": "0x40f150",
+      "obj": "0x868558",
+      "field": null
+     },
+     {
+      "at": "0x430554",
+      "fn": "0x40f0e0",
+      "obj": "0x868558",
+      "field": [
+       "0x2c",
+       "float *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "wPart.acceleration": {
+  "command": "wPart.acceleration",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00545f60",
+    "ns": "WPart",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee178",
+    "vtable": "0x80c618",
+    "exec": "0x546230",
+    "calls": []
+   }
+  ]
+ },
+ "wPart.color": {
+  "command": "wPart.color",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00544f80",
+    "ns": "WPart",
+    "type": "Vec4",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8eeb38",
+    "vtable": "0x80c478",
+    "exec": "0x5452c0",
+    "calls": [
+     {
+      "at": "0x5453df",
+      "fn": "0x79fe44",
+      "obj": "0x8eecb8",
+      "field": null
+     },
+     {
+      "at": "0x5453f2",
+      "fn": "0x79fe44",
+      "obj": "0x8eecb8",
+      "field": null
+     },
+     {
+      "at": "0x545406",
+      "fn": "0x79fe44",
+      "obj": "0x8eecb8",
+      "field": null
+     },
+     {
+      "at": "0x54541e",
+      "fn": "0x79fe44",
+      "obj": "0x8eecb8",
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "WPart.displacement": {
+  "command": "WPart.displacement",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00545b70",
+    "ns": "WPart",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee278",
+    "vtable": "0x80c5b0",
+    "exec": "0x545e90",
+    "calls": []
+   }
+  ]
+ },
+ "wPart.fadeInValue": {
+  "command": "wPart.fadeInValue",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_005462e0",
+    "ns": "WPart",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8eeab8",
+    "vtable": "0x80c680",
+    "exec": "0x5465b0",
+    "calls": []
+   }
+  ]
+ },
+ "WPart.fadeZ": {
+  "command": "WPart.fadeZ",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00544c00",
+    "ns": "WPart",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee1f8",
+    "vtable": "0x80c410",
+    "exec": "0x544ed0",
+    "calls": []
+   }
+  ]
+ },
+ "wPart.numParticles": {
+  "command": "wPart.numParticles",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00545470",
+    "ns": "WPart",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee598",
+    "vtable": "0x80c4e0",
+    "exec": "0x545740",
+    "calls": [
+     {
+      "at": "0x54579d",
+      "fn": "0x54a790",
+      "obj": "0x8eecb8",
+      "field": [
+       "0x10",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x5457a8",
+      "fn": "0x54a790",
+      "obj": "0x8eecb8",
+      "field": [
+       "0x10",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "wPart.partSize": {
+  "command": "wPart.partSize",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00543eb0",
+    "ns": "WPart",
+    "type": "Vec2",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee490",
+    "vtable": "0x80c2d8",
+    "exec": "0x5442d0",
+    "calls": []
+   }
+  ]
+ },
+ "WPart.pointSpriteMaxSize": {
+  "command": "WPart.pointSpriteMaxSize",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00546a00",
+    "ns": "WPart",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee9b8",
+    "vtable": "0x80c750",
+    "exec": "0x546cd0",
+    "calls": []
+   }
+  ]
+ },
+ "WPart.pointSpriteMinSize": {
+  "command": "WPart.pointSpriteMinSize",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00546670",
+    "ns": "WPart",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8eea38",
+    "vtable": "0x80c6e8",
+    "exec": "0x546940",
+    "calls": []
+   }
+  ]
+ },
+ "WPart.radius": {
+  "command": "WPart.radius",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00543b20",
+    "ns": "WPart",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee618",
+    "vtable": "0x80c270",
+    "exec": "0x543df0",
+    "calls": [
+     {
+      "at": "0x543e62",
+      "fn": "0x54a790",
+      "obj": "0x8eecb8",
+      "field": [
+       "0x10",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "WPart.random": {
+  "command": "WPart.random",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_005457e0",
+    "ns": "WPart",
+    "type": "float",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee388",
+    "vtable": "0x80c548",
+    "exec": "0x545ab0",
+    "calls": [
+     {
+      "at": "0x545b1d",
+      "fn": "0x6602c0",
+      "obj": "0x8eecb8",
+      "field": [
+       "0x88",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x545b2f",
+      "fn": "0x6602c0",
+      "obj": "0x8eecb8",
+      "field": [
+       "0x88",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "wPart.scale": {
+  "command": "wPart.scale",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00544780",
+    "ns": "WPart",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee300",
+    "vtable": "0x80c3a8",
+    "exec": "0x544aa0",
+    "calls": [
+     {
+      "at": "0x544ae7",
+      "fn": "0x79f898",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x544bba",
+      "fn": "0x54a790",
+      "obj": "0x8eecb8",
+      "field": [
+       "0x10",
+       "undefined4 *"
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "WPart.setTexture": {
+  "command": "WPart.setTexture",
+  "candidates": 2,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00542de0",
+    "ns": "WPart",
+    "type": "std::string",
+    "kind": 0,
+    "minArgs": 2,
+    "maxArgs": 2,
+    "descriptor": "0x8ee828",
+    "vtable": "0x80c138",
+    "exec": "0x543180",
+    "calls": [
+     {
+      "at": "0x5431b6",
+      "fn": "0x409ab0",
+      "obj": null,
+      "field": [
+       "0xc",
+       "undefined4 *"
+      ]
+     },
+     {
+      "at": "0x5431df",
+      "fn": "0x54b9a0",
+      "obj": null,
+      "field": null
+     },
+     {
+      "at": "0x543207",
+      "fn": "0x500b50",
+      "obj": null,
+      "field": null
+     }
+    ]
+   }
+  ]
+ },
+ "WPart.speed": {
+  "command": "WPart.speed",
+  "candidates": 1,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_00544390",
+    "ns": "WPart",
+    "type": "Vec3",
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee408",
+    "vtable": "0x80c340",
+    "exec": "0x5446b0",
+    "calls": []
+   }
+  ]
+ },
+ "WPart.type": {
+  "command": "WPart.type",
+  "candidates": 3,
+  "via": null,
+  "matches": [
+   {
+    "reg": "FUN_005437a0",
+    "ns": "WPart",
+    "type": null,
+    "kind": 1,
+    "minArgs": 0,
+    "maxArgs": 1,
+    "descriptor": "0x8ee718",
+    "vtable": "0x80c208",
+    "exec": "0x543a70",
+    "calls": [
+     {
+      "at": "0x543ad3",
+      "fn": "0x54a770",
+      "obj": "0x8eecb8",
+      "field": [
+       "0x84",
+       "int *"
+      ]
+     },
+     {
+      "at": "0x543ade",
+      "fn": "0x54a770",
+      "obj": "0x8eecb8",
+      "field": [
+       "0x84",
+       "int *"
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

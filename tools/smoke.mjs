@@ -4,7 +4,8 @@
 // Starts Vite on a free port, opens /?stage=testpad&menu=0 in headless chromium (SwiftShader WebGL2),
 // waits for window.__rally.ready, starts the race, holds throttle for 3 s via setRawInput, and asserts
 // the car moved. Also checks pause/step, teleport and reset through the test API. Screenshot:
-// artifacts/smoke.png. Prints a JSON summary; exits 1 on any failure (incl. console errors).
+// artifacts/smoke.png. A second page opens the default menu and checks that one ArrowDown starts the audio (the
+// menu consumes its keys in the capture phase). Prints a JSON summary; exits 1 on any failure (incl. console errors).
 //
 // Options: --url http://host:port/ (use a running dev server)  --headed  --seconds 3
 import fs from 'node:fs';
@@ -100,6 +101,32 @@ try {
   if (tp.resetCount2 > tp.resetCount1) pass('teleportReset', tp);
   else fail('teleportReset', `reset did not increment resetCount (${JSON.stringify(tp)})`);
 
+  // ---- race events: the reset above reaches getRaceEvents() with its reason (events drain on the next frame)
+  const evs = await page.evaluate(() => {
+    const r = window.__rally;
+    r.pause(true);
+    r.step(1);
+    r.pause(false);
+    return r.getRaceEvents();
+  });
+  if (evs.some((e) => e.type === 'reset' && e.reason === 'api')) pass('raceEvents', { count: evs.length });
+  else fail('raceEvents', `no reset event with reason 'api' in ${JSON.stringify(evs).slice(0, 300)}`);
+
+  // ---- overlapping loads: the LATEST loadStage wins (main.ts loadToken); the older, slower load gives up when it
+  // resumes (an original stage when the assets are built, else another procedural one)
+  const overlap = await page.evaluate(async () => {
+    const r = window.__rally;
+    const ids = r.listStages().map((s) => s.id);
+    const slow = ids.find((id) => /-[fr]$/.test(id)) ?? ids.find((id) => id !== 'testpad');
+    const a = r.loadStage(slow, { countdown: false });
+    const b = r.loadStage('testpad', { countdown: false });
+    await Promise.all([a, b]);
+    await new Promise((res) => setTimeout(res, 500));
+    return { slow, final: r.getStageInfo().id, phase: r.getRaceState().phase };
+  });
+  if (overlap.final === 'testpad' && overlap.phase === 'idle') pass('overlappingLoads', overlap);
+  else fail('overlappingLoads', `expected testpad (the later load) to win: ${JSON.stringify(overlap)}`);
+
   // ---- params round trip
   const pr = await page.evaluate(() => {
     const r = window.__rally;
@@ -118,11 +145,27 @@ try {
   else fail('params', JSON.stringify(pr));
 
   await sleep(300); // let a few frames render after the API calls
-  summary.errors = g.errors;
-  summary.warnings = g.warnings.slice(0, 20);
-  summary.ignoredConsole = g.ignored.length;
-  if (g.errors.length === 0) pass('noErrors');
-  else fail('noErrors', `${g.errors.length} console/page error(s)`);
+
+  // ---- keyboard-only menu: the first menu key starts the audio. The menu consumes its keys in the capture phase
+  // (stopImmediatePropagation); main.ts's gesture hook must still see them (AudioContext + window.__rallyAudio).
+  const gm = await openGame(browser, base, { stage: 'testpad' });
+  await waitReady(gm.page, 90000);
+  const menuOpen = await gm.page.evaluate(() => !!document.querySelector('.rw-menu.rw-open'));
+  await gm.page.keyboard.press('ArrowDown');
+  await sleep(500);
+  const menuAudio = await gm.page.evaluate(() => {
+    const a = window.__rallyAudio ? window.__rallyAudio.state() : null;
+    return a ? { mode: a.mode, running: a.running } : null;
+  });
+  if (menuOpen && menuAudio && menuAudio.running) pass('menuKeyStartsAudio', menuAudio);
+  else fail('menuKeyStartsAudio', `menu open ${menuOpen}, audio after ArrowDown: ${JSON.stringify(menuAudio)}`);
+  await gm.context.close();
+
+  summary.errors = [...g.errors, ...gm.errors];
+  summary.warnings = [...g.warnings, ...gm.warnings].slice(0, 20);
+  summary.ignoredConsole = g.ignored.length + gm.ignored.length;
+  if (summary.errors.length === 0) pass('noErrors');
+  else fail('noErrors', `${summary.errors.length} console/page error(s)`);
 } catch (err) {
   fail('exception', String(err && err.stack ? err.stack : err));
 } finally {

@@ -1,26 +1,42 @@
 /**
- * src/audio/audio.ts — OWNED BY THE RENDER BUILDER (presentation). Optional polish, lowest priority.
+ * src/audio/audio.ts — OWNED BY THE AUDIO BUILDER.
  *
- * Procedural (synthesised, ORIGINAL) engine / turbo / tyre / surface / impact audio with WebAudio.
- * No sampled audio from any other game.
+ * The game's audio engine (IAudioEngine). Two paths:
+ *
+ *   1. ORIGINAL (the target, research/formats/sound.md): when the asset manifest lists the global `audio` part,
+ *      the original sound bank (src/audio/orig/index.ts loadOriginalSoundBank) drives the ported patch engine
+ *      (src/audio/orig/player.ts OriginalAudio: the CarSoundPlayer of FrameContext.origCar or the archetype's
+ *      default original car, the stage ambience, the race UI scripts, the co-driver words, the menu sounds) on the
+ *      original's 15 Hz sound tick. No compressor (the original mixes straight into DirectSound).
+ *   2. SYNTH (fallback: no assets, `?orig=0`, a failing bank): procedural engine / turbo / tyre / surface / impact
+ *      voices, unchanged from the pre-port engine. No sampled audio from any other game.
+ *
+ * Music (the licensed soundtrack) is off unless `?music=1` and then only reads the gitignored
+ * public/sound/music/ folder (src/audio/orig/music.ts).
  *
  * REQUIRED EXPORTS (contract in src/core/types.ts IAudioEngine):
  *   class AudioEngine implements IAudioEngine
  *     constructor()
- *     resume(): void              // call from a user gesture (main.ts does on first keydown/pointerdown)
+ *     resume(): void              // call from a user gesture (main.ts: window keydown / pointerdown in the capture phase, registered before the Menu, until `started`)
  *     setEnabled(on: boolean): void; readonly enabled: boolean
- *     update(ctx: Readonly<FrameContext>): void   // per frame: rpm, throttle, boostFrac, gear, wheel slip, surface
+ *     update(ctx: Readonly<FrameContext>): void   // per frame
  *     dispose(): void
+ *   Extras (main.ts audio call sites): setListenerSource(fn) — the render camera (GameRenderer.camera) as the 3-D listener;
+ *   playUiSound(name) — menu meme sounds; debugState() / window.__rallyAudio — what plays (tools).
  *
- * Voices (all synthesised): engine = two detuned oscillators at the firing frequency (4-cyl: 2 pulses per
+ * Synth voices: engine = two detuned oscillators at the firing frequency (4-cyl: 2 pulses per
  * rev, the classic coupe's 5-cyl: 2.5) through a soft clipper and a throttle-opened low-pass, plus an
  * intake rasp band; turbo whistle + blow-off hiss on lift; tyre squeal (tarmac family) from band-passed
  * noise driven by wheel slip; loose-surface rumble + stone crunch from speed; wind from speed²;
  * a thump on impacts. Everything ramps with setTargetAtTime, so the per-frame cost is a handful of
  * parameter writes.
  */
+import { warnOnce } from '../core/assets';
 import { DT, SURFACE_INFO } from '../core/constants';
 import type { ArchetypeId, CarTelemetry, FrameContext, IAudioEngine, SurfaceId } from '../core/types';
+import { loadOriginalSoundBank } from './orig';
+import { MusicPlayer, musicEnabled } from './orig/music';
+import { type ListenerPose, OriginalAudio, type OriginalAudioDebug, type UiSoundName } from './orig/player';
 
 const FIRING: Record<ArchetypeId, number> = { awd_wrc: 2, fwd_hatch: 2, rwd_classic: 2.5 };
 const PITCH: Record<ArchetypeId, number> = { awd_wrc: 1, fwd_hatch: 1.12, rwd_classic: 0.92 };
@@ -75,10 +91,56 @@ interface Graph {
   sources: AudioScheduledSourceNode[];
 }
 
+/** The engine that owns the current context (playUiSound target). */
+let current: AudioEngine | null = null;
+
+/** Play a menu meme sound (Menu.rff menu/sound/<Name>.wav, sound.md §9) through the live engine; a no-op with the
+ *  synth / without assets. For the menu (IMenuHost owner). */
+export function playUiSound(name: UiSoundName): void {
+  current?.playUiSound(name);
+}
+
+/** The live engine's sound path ('idle' before the first user gesture builds it); the menu's Sound / Co-driver copy. */
+export function audioMode(): AudioDebugState['mode'] {
+  return current?.debugState().mode ?? 'idle';
+}
+
+/** The render camera of a GameRenderer (its public read-only `camera`) as the audio listener; null without one. */
+export function rendererListener(renderer: { readonly camera?: ListenerPose | null } | null): ListenerPose | null {
+  const cam = renderer?.camera ?? null;
+  return cam && cam.matrixWorld && cam.matrixWorld.elements ? cam : null;
+}
+
+export interface AudioDebugState {
+  running: boolean;
+  mode: 'idle' | 'loading' | 'original' | 'synth';
+  omega: number[];
+  original: OriginalAudioDebug | null;
+  music: boolean;
+  /** Smoothed main-thread ms per update() call. */
+  cpuMs: number;
+}
+
+declare global {
+  interface Window {
+    /** Debug / tools: what the audio engine plays (tests/audio/browser-check.mjs). */
+    __rallyAudio?: { state(): AudioDebugState };
+  }
+}
+
 export class AudioEngine implements IAudioEngine {
   enabled = true;
+  private ac: AudioContext | null = null;
+  /** On / off gain → destination (both paths). */
+  private out: GainNode | null = null;
   private g: Graph | null = null;
   private failed = false;
+  private mode: AudioDebugState['mode'] = 'idle';
+  private orig: OriginalAudio | null = null;
+  private music: MusicPlayer | null = null;
+  private listener: (() => ListenerPose | null) | null = null;
+  /** Smoothed CPU ms of update() (debugState). */
+  private cpuMs = 0;
   private lastStep = -1;
   private lastThrottle = 0;
   private lastBoost = 0;
@@ -87,14 +149,29 @@ export class AudioEngine implements IAudioEngine {
 
   resume(): void {
     if (this.failed) return;
-    if (!this.g) this.build();
-    const ac = this.g?.ac;
+    if (!this.ac) this.build();
+    const ac = this.ac;
     if (ac && ac.state === 'suspended') void ac.resume().catch(() => {});
+  }
+
+  /** The context runs (or can never start: no Web Audio): main.ts's gesture hook stops calling resume(). */
+  get started(): boolean {
+    return this.failed || this.ac?.state === 'running';
   }
 
   setEnabled(on: boolean): void {
     this.enabled = on;
-    if (this.g) this.g.master.gain.setTargetAtTime(on ? 0.8 : 0, this.g.ac.currentTime, 0.05);
+    if (this.out && this.ac) this.out.gain.setTargetAtTime(on ? 1 : 0, this.ac.currentTime, 0.05);
+    if (!on) this.music?.pause();
+  }
+
+  /** The 3-D listener (CamListener.con: the render camera), read once per frame. */
+  setListenerSource(fn: (() => ListenerPose | null) | null): void {
+    this.listener = fn;
+  }
+
+  playUiSound(name: UiSoundName): void {
+    if (this.enabled && this.ac?.state === 'running') this.orig?.playUiSound(name, 1);
   }
 
   private build(): void {
@@ -106,12 +183,52 @@ export class AudioEngine implements IAudioEngine {
     }
     try {
       const ac = new C({ latencyHint: 'interactive' });
+      const out = ac.createGain();
+      out.gain.value = this.enabled ? 1 : 0;
+      out.connect(ac.destination);
+      this.ac = ac;
+      this.out = out;
+      this.mode = 'loading';
+      current = this;
+      if (typeof window !== 'undefined') window.__rallyAudio = { state: () => this.debugState() };
+      if (musicEnabled()) this.music = new MusicPlayer();
+      // the original bank when built (silent while its JSON loads), else the synth
+      loadOriginalSoundBank(ac)
+        .then((bank) => {
+          if (this.ac !== ac) {
+            bank?.dispose();
+            return;
+          }
+          if (!bank) {
+            this.buildSynth();
+            return;
+          }
+          this.orig = new OriginalAudio(ac, bank, out);
+          this.mode = 'original';
+        })
+        .catch((e) => {
+          warnOnce('audio-bank', `audio: original sound bank unavailable (${String(e)}); using the synthesised sounds`);
+          if (this.ac === ac) this.buildSynth();
+        });
+    } catch (e) {
+      console.warn('audio: unavailable', e);
+      this.failed = true;
+      this.ac = null;
+    }
+  }
+
+  private buildSynth(): void {
+    const ac = this.ac;
+    const out = this.out;
+    if (!ac || !out) return;
+    this.mode = 'synth';
+    try {
       const master = ac.createGain();
-      master.gain.value = this.enabled ? 0.8 : 0;
+      master.gain.value = 0.8;
       const comp = ac.createDynamicsCompressor();
       comp.threshold.value = -14;
       comp.ratio.value = 4;
-      master.connect(comp).connect(ac.destination);
+      master.connect(comp).connect(out);
       const noise = noiseBuffer(ac);
       const sources: AudioScheduledSourceNode[] = [];
       const noiseSrc = (rate = 1) => {
@@ -204,15 +321,33 @@ export class AudioEngine implements IAudioEngine {
         squeal, squealGain, rumble, rumbleGain, crunch, crunchGain, wind, windGain, noise, sources,
       };
     } catch (e) {
-      console.warn('audio: unavailable', e);
-      this.failed = true;
+      console.warn('audio: synthesised sounds unavailable', e);
       this.g = null;
     }
   }
 
   update(ctx: Readonly<FrameContext>): void {
-    const g = this.g;
-    if (!g || g.ac.state !== 'running') return;
+    const ac = this.ac;
+    if (!ac || ac.state !== 'running') return;
+    const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+    if (this.orig) this.updateOriginal(ctx, this.orig);
+    else if (this.g) this.updateSynth(ctx, this.g);
+    if (t0) this.cpuMs += (performance.now() - t0 - this.cpuMs) * 0.05;
+  }
+
+  private updateOriginal(ctx: Readonly<FrameContext>, o: OriginalAudio): void {
+    o.setListener(this.listener?.() ?? null, ctx.frameDt, ctx.telemetry.posSim);
+    // sfxMaster = 1: rally-web has no options sliders; on / off is the output gain
+    o.update(ctx, 1);
+    const m = this.music;
+    if (m) {
+      m.setVolume(1);
+      if (this.enabled && !ctx.paused) m.play();
+      else m.pause();
+    }
+  }
+
+  private updateSynth(ctx: Readonly<FrameContext>, g: Graph): void {
     const tel = ctx.telemetry;
     const t = g.ac.currentTime;
     const tc = 0.03;
@@ -308,23 +443,37 @@ export class AudioEngine implements IAudioEngine {
     o.stop(t + 0.32);
   }
 
-  /** Debug: current per-wheel ω used for the surface voices. */
-  debugState(): { running: boolean; omega: number[] } {
-    return { running: this.g?.ac.state === 'running', omega: [...this.wheelOmega] };
+  /** Debug: the path in use, what the original engine plays, per-wheel ω of the synth surface voices. */
+  debugState(): AudioDebugState {
+    return {
+      running: this.ac?.state === 'running',
+      mode: this.mode,
+      omega: [...this.wheelOmega],
+      original: this.orig?.debug() ?? null,
+      music: !!this.music,
+      cpuMs: +this.cpuMs.toFixed(3),
+    };
   }
 
   dispose(): void {
     const g = this.g;
-    if (!g) return;
-    for (const s of g.sources) {
+    for (const s of g?.sources ?? []) {
       try {
         s.stop();
       } catch {
         /* already stopped */
       }
     }
-    void g.ac.close().catch(() => {});
     this.g = null;
+    this.orig?.dispose();
+    this.orig = null;
+    this.music?.dispose();
+    this.music = null;
+    if (current === this) current = null;
+    const ac = this.ac;
+    this.ac = null;
+    this.out = null;
+    if (ac) void ac.close().catch(() => {});
   }
 }
 

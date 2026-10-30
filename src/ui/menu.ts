@@ -11,6 +11,19 @@
  * While a menu is visible it consumes the navigation keys (capture phase), so the car never sees them, and
  * main.ts ignores the pause edge (the menu handles Esc / P itself).
  *
+ * Car row (cars builder): the ORIGINAL cars by their real LocaleEnglish names (IMenuHost.listCars, available =
+ * built in the asset manifest; info line = the original menu icon, spec lines and bars from cars/<Name>/cars.json),
+ * then the three procedural archetype "class cars" (the handling-lab cars and the only cars without built assets).
+ * Picking an original car sets RaceSelection.car + its drive archetype; an archetype car clears `car`. The
+ * original cars are listed in the original car-select order (constants.ts ORIG_CAR_MENU_ORDER).
+ *
+ * Menu sounds: the original's meme sounds (Menu.rff menu/sound/<Name>.wav, research/formats/sound.md §9) through
+ * playUiSound: 'Step' on cursor moves (the car select / every frame's "Step sound"), 'Tag' on an option value change
+ * (the Options frames' "Change sound"), 'Select' on confirm, 'Back' on back, 'Error' on a refused selection (a
+ * disabled row; SelectCarFrame / the track lists' "Cannot select sound"), 'Sweep' when the main menu or the results
+ * screen opens (the Navigation screen transitions). 'Unlock' (championship rewards) and 'Screeneffekt' (used by no
+ * menu meme) have no rally-web counterpart. Silent without the original sound bank.
+ *
  * REQUIRED EXPORTS (contract in src/core/types.ts IMenu):
  *   class Menu implements IMenu
  *     constructor(root: HTMLElement, host: IMenuHost)
@@ -19,10 +32,13 @@
  *     update(ctx: Readonly<FrameContext>): void
  *     dispose(): void
  */
-import { CAMERA_MODES, DEFAULT_CAMERA, TYRE_NAMES } from '../core/constants';
+import { assetUrl, carPartPath, fetchJson, getAssetManifest } from '../core/assets';
+import { audioMode, playUiSound } from '../audio/audio';
+import { CAMERA_MODES, DEFAULT_CAMERA, ORIG_CAR_MENU_ORDER, TYRE_NAMES } from '../core/constants';
 import type {
   ArchetypeInfo,
   CameraMode,
+  CarListEntry,
   FrameContext,
   IMenu,
   IMenuHost,
@@ -57,6 +73,23 @@ interface Button {
   primary?: boolean;
   run(): void;
 }
+
+/** One entry of the Car row: an original car (listCars) or a procedural archetype car. */
+type CarChoice = { kind: 'orig'; id: string; name: string; drive: 'AWD' | 'FWD' | 'RWD'; car: CarListEntry } | { kind: 'arch'; id: string; name: string; drive: 'AWD' | 'FWD' | 'RWD'; arch: ArchetypeInfo };
+
+/** The part of cars/<Name>/cars.json the menu shows (tools/assets/parts/cars.py). */
+interface CarMenuInfo {
+  name: string;
+  specs: string[];
+  /** The spec lines one per value ("530 hp", "790 Nm", "1298 kg", "4WD", "5") and their screen labels. */
+  specLines?: string[];
+  specLabels?: string[];
+  sliders: number[] | null;
+  /** Bar labels of the car select screen ("Speed", "Handling", "Accel"). */
+  sliderLabels?: string[];
+  icon: { path: string; width: number; height: number } | null;
+}
+const carMenuInfo = new Map<string, Promise<CarMenuInfo | null>>();
 
 const CAMERA_LABEL: Record<CameraMode, string> = {
   bumper: 'Bumper',
@@ -167,7 +200,9 @@ export class Menu implements IMenu {
     seed: 1,
   };
   private stages: StageListEntry[] = [];
-  private cars: ArchetypeInfo[] = [];
+  private cars: CarChoice[] = [];
+  /** Loaded cars.json extras by car id (filled lazily for the info line). */
+  private carInfos = new Map<string, CarMenuInfo>();
   private rows: OptRow[] = [];
   private buttons: Button[] = [];
   private returnTo: Screen = 'none';
@@ -194,6 +229,8 @@ export class Menu implements IMenu {
   private padRepeatT = 0;
   private padDir = 0;
   private padHoldInit = true;
+  /** The original sound bank is built (manifest.audio): the Sound / Co-driver lines name the original samples. */
+  private origBank = false;
 
   private readonly onKey = (e: KeyboardEvent) => this.handleKey(e);
 
@@ -210,6 +247,16 @@ export class Menu implements IMenu {
     this.body.addEventListener('click', (e) => this.onClick(e));
     this.body.addEventListener('mousemove', (e) => this.onHover(e));
     window.addEventListener('keydown', this.onKey, true);
+    void getAssetManifest().then((m) => {
+      this.origBank = !!m?.audio;
+      if (this.screen === 'main') this.renderMain();
+    });
+  }
+
+  /** The original samples play (or will, once the first gesture starts the audio): not the synth fallback. */
+  private originalSound(): boolean {
+    const mode = audioMode();
+    return mode === 'original' || (mode !== 'synth' && this.origBank);
   }
 
   get visible(): boolean {
@@ -222,7 +269,7 @@ export class Menu implements IMenu {
     if (this.screen === 'pause') this.returnTo = 'pause';
     else if (this.screen !== 'main') this.returnTo = 'none';
     this.stages = this.host.listStages();
-    this.cars = this.host.listArchetypes();
+    this.cars = this.carChoices();
     this.sel = this.host.getSelection();
     if (!this.stages.some((s) => s.id === this.sel.stageId) && this.stages.length) this.sel.stageId = this.stages[0].id;
     this.buildMainRows();
@@ -231,6 +278,7 @@ export class Menu implements IMenu {
     this.el.className = 'rw-menu rw-open';
     this.padHoldInit = true;
     this.renderMain();
+    playUiSound('Sweep');
   }
 
   showPause(): void {
@@ -263,7 +311,9 @@ export class Menu implements IMenu {
     const ctx = this.lastCtx;
     if (!ctx) return;
     const r = ctx.race;
-    const car = this.host.listArchetypes().find((a) => a.id === ctx.telemetry.archetype);
+    const origId = this.host.getSelection().car;
+    const orig = origId ? this.host.listCars?.().find((c) => c.id === origId) : undefined;
+    const car = orig ?? this.host.listArchetypes().find((a) => a.id === ctx.telemetry.archetype);
     this.resultsSnap = {
       time: r.finishTime ?? r.time,
       best: this.lastFinish?.best ?? false,
@@ -289,6 +339,7 @@ export class Menu implements IMenu {
     this.el.className = 'rw-menu rw-open rw-center';
     this.padHoldInit = true;
     this.renderCard();
+    playUiSound('Sweep');
   }
 
   // =================================================================================== main menu rows
@@ -296,8 +347,47 @@ export class Menu implements IMenu {
   private stageEntry(): StageListEntry | undefined {
     return this.stages.find((s) => s.id === this.sel.stageId);
   }
-  private carEntry(): ArchetypeInfo | undefined {
-    return this.cars.find((c) => c.id === this.sel.archetype);
+  private carEntry(): CarChoice | undefined {
+    return this.cars[this.carIndex()];
+  }
+
+  private carIndex(): number {
+    const s = this.sel;
+    let i = s.car ? this.cars.findIndex((c) => c.kind === 'orig' && c.id === s.car) : -1;
+    // an original car whose assets are not built (?car=<Name> with ?orig=0) shows its drive archetype's class car
+    if (i < 0) i = this.cars.findIndex((c) => c.kind === 'arch' && c.id === s.archetype);
+    return Math.max(0, i);
+  }
+
+  /** Original cars (built ones, in the original car-select order), then the archetype class cars. */
+  private carChoices(): CarChoice[] {
+    const order = (id: string) => {
+      const i = ORIG_CAR_MENU_ORDER.indexOf(id);
+      return i < 0 ? ORIG_CAR_MENU_ORDER.length : i;
+    };
+    const orig: CarChoice[] = (this.host.listCars?.() ?? [])
+      .filter((c) => c.available)
+      .sort((a, b) => order(a.id) - order(b.id) || a.name.localeCompare(b.name))
+      .map((c) => ({ kind: 'orig', id: c.id, name: c.name, drive: c.drive, car: c }));
+    const arch: CarChoice[] = this.host.listArchetypes().map((a) => ({ kind: 'arch', id: a.id, name: a.name, drive: a.drive, arch: a }));
+    return [...orig, ...arch];
+  }
+
+  /** cars.json of an original car (icon, spec lines, bars) for the info line; re-renders once loaded. */
+  private origInfo(id: string): CarMenuInfo | undefined {
+    const have = this.carInfos.get(id);
+    if (have) return have;
+    let p = carMenuInfo.get(id);
+    if (!p) {
+      p = fetchJson<CarMenuInfo>(carPartPath(id, 'cars')).catch(() => null);
+      carMenuInfo.set(id, p);
+    }
+    void p.then((v) => {
+      if (!v || this.carInfos.has(id)) return;
+      this.carInfos.set(id, v);
+      if (this.screen === 'main' && this.carEntry()?.id === id) this.renderMain();
+    });
+    return undefined;
   }
 
   private buildMainRows(): void {
@@ -341,18 +431,43 @@ export class Menu implements IMenu {
       {
         id: 'car',
         label: 'Car',
-        choices: () => this.cars.map((c) => ({ label: c.name, sub: c.drive })),
-        get: () => Math.max(0, this.cars.findIndex((c) => c.id === s.archetype)),
+        choices: () => this.cars.map((c) => ({ label: c.name, sub: c.kind === 'arch' ? `${c.drive} · class car` : c.drive })),
+        get: () => this.carIndex(),
         set: (i) => {
           const c = this.cars[i];
-          if (c) s.archetype = c.id;
+          if (!c) return;
+          if (c.kind === 'orig') {
+            s.car = c.id;
+            s.archetype = c.car.archetype;
+          } else {
+            delete s.car;
+            s.archetype = c.arch.id;
+          }
         },
         enabled: () => this.cars.length > 0,
         info: () => {
           const c = this.carEntry();
           if (!c) return '';
+          if (c.kind === 'orig') {
+            const inf = this.origInfo(c.id);
+            const icon = inf?.icon
+              ? `<img src="${escapeHtml(assetUrl(`cars/${c.id}/${inf.icon.path}`))}" alt="" width="${inf.icon.width}" height="${inf.icon.height}" style="float:left;margin:0 10px 0 0;image-rendering:auto">`
+              : '';
+            // the car select screen's own labels (LocaleEnglish 50 / 51) and RallySlider2 bars (0..1)
+            const bar = (v: number) =>
+              `<span style="display:inline-block;width:56px;height:6px;margin:0 8px 1px 4px;background:rgba(255,255,255,.18);vertical-align:middle"><span style="display:block;height:100%;width:${Math.round(Math.max(0, Math.min(1, v)) * 100)}%;background:#f5b324"></span></span>`;
+            const bars = inf?.sliders?.length
+              ? `<br><small>${inf.sliders.map((v, j) => `${escapeHtml(inf.sliderLabels?.[j] ?? '')}${bar(v)}`).join('')}</small>`
+              : '';
+            const lines = inf?.specLines?.length ? inf.specLines : (inf?.specs ?? []);
+            const specs = lines.length
+              ? `<br>${lines.map((v, j) => (inf?.specLabels?.[j] ? `<small>${escapeHtml(inf.specLabels[j])}</small> ${escapeHtml(v)}` : escapeHtml(v))).join(' · ')}`
+              : '';
+            return `${icon}<b>${escapeHtml(c.name.toUpperCase())}</b> · ${c.drive}${specs}${bars}<span style="display:block;clear:both"></span>`;
+          }
+          const a = c.arch;
           const sw = (n: number) => `<span class="rw-swatch" style="background:#${n.toString(16).padStart(6, '0')}"></span>`;
-          return `${sw(c.colors.body)}${sw(c.colors.accent)}${sw(c.colors.stripe)} <b>${escapeHtml(c.name.toUpperCase())}</b> · ${c.drive}<br>${escapeHtml(c.blurb)}`;
+          return `${sw(a.colors.body)}${sw(a.colors.accent)}${sw(a.colors.stripe)} <b>${escapeHtml(a.name.toUpperCase())}</b> · ${a.drive}<br>${escapeHtml(a.blurb)}`;
         },
       },
       {
@@ -415,7 +530,10 @@ export class Menu implements IMenu {
           setUiSetting('voice', i === 2);
         },
         enabled: () => true,
-        info: () => 'Pacenotes on rally and hill-climb stages: severity 6 is nearly flat, 1 is a hairpin. Voice uses the browser speech engine (N toggles it).',
+        info: () =>
+          this.originalSound()
+            ? 'Pacenotes on rally and hill-climb stages: easy 5, medium 4, hard 3, square 2, hairpin 1. The voice is the original co-driver (the browser speech engine on the procedural stages); N toggles it.'
+            : 'Pacenotes on rally and hill-climb stages: severity 6 is nearly flat, 1 is a hairpin. Voice uses the browser speech engine (N toggles it).',
       },
       {
         id: 'sound',
@@ -424,7 +542,10 @@ export class Menu implements IMenu {
         get: () => (this.host.isAudioEnabled() ? 1 : 0),
         set: (i) => this.host.setAudioEnabled(i === 1),
         enabled: () => true,
-        info: () => 'Synthesised engine, tyre and impact sounds. M toggles it in the car.',
+        info: () =>
+          this.originalSound()
+            ? 'The original engine, surface, impact, ambience and co-driver samples. M toggles it in the car.'
+            : 'Synthesised engine, tyre and impact sounds (the original sound bank is off or not built). M toggles it in the car.',
       },
     ];
     this.buttons = [
@@ -435,7 +556,7 @@ export class Menu implements IMenu {
   }
 
   private renderMain(): void {
-    const best = readBestTime(this.sel.stageId, this.sel.seed, this.sel.archetype);
+    const best = readBestTime(this.sel.stageId, this.sel.seed, this.sel.car ?? this.sel.archetype);
     const focusRow = this.focus < this.rows.length ? this.rows[this.focus] : this.rows[0];
     const rows = this.rows
       .map((r, i) => {
@@ -458,7 +579,7 @@ export class Menu implements IMenu {
       .join('');
     this.body.innerHTML =
       `<div class="rw-main">` +
-      `<div class="rw-title">Rally<em>/</em>Web</div><div class="rw-subtitle">Stage rally · arcade handling lab</div>` +
+      `<div class="rw-title">Rally<em>/</em>Web</div><div class="rw-subtitle">Rally · hill climb · rallycross · ice racing</div>` +
       `<div class="rw-rows">${rows}</div>` +
       `<div class="rw-info">${focusRow ? focusRow.info() : ''}</div>` +
       `<div class="rw-actions">${btns}<div class="rw-best">Best<b>${best !== null ? formatTime(best) : '—'}</b></div></div>` +
@@ -559,6 +680,7 @@ export class Menu implements IMenu {
       f = (f + d + n) % n;
       if (f >= this.rows.length || this.rows[f].enabled()) break;
     }
+    if (f !== this.focus) playUiSound('Step');
     this.focus = f;
     this.render();
   }
@@ -566,33 +688,57 @@ export class Menu implements IMenu {
   private change(d: number): void {
     if (this.focus < this.rows.length) {
       const r = this.rows[this.focus];
-      if (!r.enabled()) return;
+      if (!r.enabled()) {
+        playUiSound('Error'); // refused (e.g. power ratio on a 2WD car)
+        return;
+      }
       const n = r.choices().length;
       if (n === 0) return;
-      r.set((r.get() + d + n) % n);
+      const before = r.get();
+      r.set((before + d + n) % n);
+      // stage / car lists: the cursor of the track list / car select ("Step"); option values: "Tag"
+      if (r.get() !== before) playUiSound(r.id === 'stage' || r.id === 'car' ? 'Step' : 'Tag');
       this.render();
     } else if (this.screen === 'results' || this.screen === 'main') {
       // left/right moves between buttons on button rows
       const j = this.focus - this.rows.length;
       const nb = this.buttons.length;
-      this.focus = this.rows.length + ((j + d + nb) % nb);
+      const f = this.rows.length + ((j + d + nb) % nb);
+      if (f !== this.focus) playUiSound('Step');
+      this.focus = f;
       this.render();
     }
   }
 
   private activate(): void {
     if (this.focus < this.rows.length) {
-      if (this.screen === 'main') this.startSelected();
+      if (this.screen === 'main') {
+        playUiSound('Select');
+        this.startSelected();
+      }
       return;
     }
-    this.buttons[this.focus - this.rows.length]?.run();
+    const b = this.buttons[this.focus - this.rows.length];
+    if (!b) return;
+    playUiSound('Select');
+    b.run();
   }
 
   private back(): void {
-    if (this.help.visible) return this.help.hide();
-    if (this.screen === 'pause') this.host.setPaused(false);
-    else if (this.screen === 'main' && this.returnTo === 'pause') this.backToPause();
-    else if (this.screen === 'results') this.showMain();
+    if (this.help.visible) {
+      playUiSound('Back');
+      return this.help.hide();
+    }
+    if (this.screen === 'pause') {
+      playUiSound('Back');
+      this.host.setPaused(false);
+    } else if (this.screen === 'main' && this.returnTo === 'pause') {
+      playUiSound('Back');
+      this.backToPause();
+    } else if (this.screen === 'results') {
+      playUiSound('Back');
+      this.showMain();
+    }
   }
 
   // =================================================================================== input
@@ -695,6 +841,7 @@ export class Menu implements IMenu {
       const i = Number(row.dataset.row);
       if (i === this.focus) this.change(1);
       else {
+        playUiSound('Step');
         this.focus = i;
         this.render();
       }
@@ -707,6 +854,7 @@ export class Menu implements IMenu {
     const row = t.closest('[data-row]') as HTMLElement | null;
     const f = btn ? this.rows.length + Number(btn.dataset.btn) : row ? Number(row.dataset.row) : -1;
     if (f >= 0 && f !== this.focus && (f >= this.rows.length || this.rows[f].enabled())) {
+      playUiSound('Step');
       this.focus = f;
       this.render();
     }

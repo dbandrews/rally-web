@@ -5,13 +5,23 @@
  * the race clock (sim time, crossing times interpolated inside the step → ms resolution), timing gates for
  * checkpoints / laps / finish with split deltas against the best run (localStorage per stage + seed + car),
  * the §5.4 reset rules (manual reset on the rising edge while running; automatic "hand of god" when
- * |lateral| > 30 m, height < -5 m below the spline, or s outside stage.validRange; 1.0 s fade with controls
- * disabled, teleport at 0.5 s to max(s - 20, startS + 1) raised 1.5 m, 100 settle steps, no time penalty),
+ * |lateral| > 30 m, height < -5 m below the spline, or s outside stage.validRange (a ported stage's archive
+ * splineRange verbatim, whose minimum may lie past the start line); 1.0 s fade with controls
+ * disabled, teleport at 0.5 s to max(s - 20, validRange[0] + 1) raised 1.5 m, 100 settle steps, no time
+ * penalty; FUN_004b3e50 → FUN_0074d980(20, lo + 1); lap circuits have no range, the original's ±FLT_MAX,
+ * so they go back 20 m across the lap line). The checks use the stage spline only, so they work the same on
+ * the original collision mesh (off the mesh nothing is hit, the car falls and the -5 m rule catches it),
  * a [D] player "stuck" rule (upside down for 2.5 s, or crawling < 3 km/h for 10 s with a pedal pressed →
  * reset in place),
  * §5.7 pacenote triggering (|lateral| < 20 m, fire once, never replayed after a reset), wrong-way detection,
  * top speed, and ghost recording / playback of the best run (30 Hz).
  * Testpad stages ('testpad' discipline) disable the automatic resets, wrong way and the finish.
+ * Start (docs/orig/race.md §1): the clock runs from GO; trigger 0 (stage.startS) is the original's start
+ * EVENT and times nothing (FUN_004b4170 has no case for it); a ported stage's car waits at its spawn grid
+ * (stage `spawnS`, which may lie past trigger 0), a procedural one `startGridBack` m behind the line.
+ * Best times and ghosts are keyed by the original car (begin opts.origCar) or else the archetype.
+ * At the finish a ported stage's Physics.bodyBrakingFactorForTrack (stage `trackBraking`) goes to
+ * CarSim.setTrackBraking (the original's post-finish phys+0x44 braking, MECHANICS_SPEC §2.7).
  *
  * REQUIRED EXPORTS (contract in src/core/types.ts IRaceController):
  *   class RaceController implements IRaceController
@@ -74,12 +84,26 @@ const CRAWL_KMH = 3;
 /** Passed notes leave the HUD list this far after their corner. */
 const PACENOTE_KEEP_M = 40;
 /**
+ * A timing trigger only counts while the car is within this lateral distance of the centre line; passed
+ * further out it waits until the car comes back (FUN_00483470: `dist < pos && |lat| < 20`, else −1 and the
+ * trigger index stays).
+ */
+export const TRIGGER_LATERAL_M = 20;
+/**
  * [D] Grid spot the game uses (main.ts passes it as RaceControllerOptions.startGridBack): the car waits this far
  * behind the start line (stage.startS), so the start gantry stands in front of the countdown camera instead of
  * over it (its beam covered the top of the screen). The clock still starts at GO; route distance is measured from
  * the line (it starts slightly negative). The controller's default is 0 (car on the line, the contract).
  */
 export const START_GRID_BACK_M = 8;
+
+/**
+ * §5.4 valid range of a point-to-point stage: stage.validRange (a ported stage's archive splineRange verbatim,
+ * src/world/portedBuilder.ts; its minimum may lie past the start line, corsica-2-f 550 vs trigger 0 at 545).
+ */
+function rangeOf(stage: Stage): readonly [number, number] {
+  return stage.validRange;
+}
 
 export function initialRaceState(): RaceState {
   return {
@@ -136,6 +160,10 @@ export class RaceController implements IRaceController {
   private car: ICarSim | null = null;
   private world: WorldQuery | null = null;
   private archetype: ArchetypeId = 'awd_wrc';
+  /** Original car name (begin opts.origCar), carried on the ghost's render state. */
+  private origCar: string | undefined;
+  /** Best-time / ghost key: the original car name, else the archetype. */
+  private carKey = 'awd_wrc';
   private events: RaceEvent[] = [];
   private gates: TimingGate[] = [];
   private nextGate = 0;
@@ -178,11 +206,14 @@ export class RaceController implements IRaceController {
 
   // =================================================================================== lifecycle
 
-  begin(stage: Stage, car: ICarSim, opts: { countdown: boolean; world?: WorldQuery }): void {
+  begin(stage: Stage, car: ICarSim, opts: { countdown: boolean; world?: WorldQuery; origCar?: string }): void {
     this.stage = stage;
     this.car = car;
     this.world = opts.world ?? null;
     this.archetype = car.archetype ?? car.params.archetype;
+    this.origCar = opts.origCar || undefined;
+    this.carKey = this.origCar ?? this.archetype;
+    this.ghostRs = null;
     this.events = [];
     this.gates = buildGates(stage);
     this.nextGate = 0;
@@ -211,12 +242,12 @@ export class RaceController implements IRaceController {
     st.splits = [];
     st.pacenotes = [];
 
-    const rec = this.best.load(stage.id, stage.seed, this.archetype);
+    const rec = this.best.load(stage.id, stage.seed, this.carKey);
     st.bestTime = rec ? rec.time : null;
     st.bestSplits = rec ? [...rec.splits] : null;
-    this.ghost = this.ghostEnabled && rec ? this.best.loadGhost(stage.id, stage.seed, this.archetype) : null;
+    this.ghost = this.ghostEnabled && rec ? this.best.loadGhost(stage.id, stage.seed, this.carKey) : null;
 
-    car.reset(this.gridPose(stage), SETTLE_STEPS);
+    this.placeAtStart();
     car.setParked(true);
     if (opts.countdown) {
       st.phase = 'countdown';
@@ -310,6 +341,7 @@ export class RaceController implements IRaceController {
       st.resetting = false;
       st.fade = 0;
       if (reason === 'restart' || st.phase === 'idle' || st.phase === 'countdown') {
+        if (reason === 'restart') this.caller.reset(this.stage.pacenotes ?? []); // resetPaceNotes (FUN_0074b680)
         this.placeAtStart();
       } else {
         this.resetFromS = st.s;
@@ -411,6 +443,7 @@ export class RaceController implements IRaceController {
       this.ghostRs = {
         id: 'ghost',
         archetype: this.archetype,
+        ...(this.origCar ? { origCar: this.origCar } : {}),
         ghost: true,
         player: false,
         pos: { x: 0, y: 0, z: 0 },
@@ -422,6 +455,8 @@ export class RaceController implements IRaceController {
     const rs = this.ghostRs;
     const tel = rs.telemetry as CarTelemetry;
     rs.archetype = this.archetype;
+    if (this.origCar) rs.origCar = this.origCar;
+    else delete rs.origCar;
     rs.pos.x = tel.pos.x = g.pos.x;
     rs.pos.y = tel.pos.y = g.pos.y;
     rs.pos.z = tel.pos.z = g.pos.z;
@@ -466,8 +501,10 @@ export class RaceController implements IRaceController {
     const st = this.state;
     const time = st.time;
     while (st.phase === 'running' && this.nextGate < this.gates.length && this.dist >= this.gates[this.nextGate].dist) {
+      if (Math.abs(st.lateral) >= TRIGGER_LATERAL_M) break; // waits until back within 20 m
       const g = this.gates[this.nextGate++];
-      const t = roundMs(crossingTime(time, dt, this.prevDist, this.dist, g.dist));
+      // crossed during this step: interpolated; a trigger that waited counts now
+      const t = roundMs(this.prevDist < g.dist ? crossingTime(time, dt, this.prevDist, this.dist, g.dist) : time);
       st.splits.push(t);
       const i = st.splits.length - 1;
       const delta = st.bestSplits && st.bestSplits.length > i ? roundMs(t - st.bestSplits[i]) : null;
@@ -494,6 +531,11 @@ export class RaceController implements IRaceController {
     st.time = t;
     st.nextCheckpoint = st.checkpointsTotal;
     this.recorder.stop();
+    // the race is over (FUN_004b4170 case 3 → player state 4, FUN_004b3790): the physics' track braking flag
+    // phys+0x44 goes on with the stage's Physics.bodyBrakingFactorForTrack (MECHANICS_SPEC §2.7); a stage
+    // without the factor (the procedural ones) keeps the car as it was. car.reset switches it off again.
+    const braking = (stage as Stage & { trackBraking?: number }).trackBraking;
+    if (typeof braking === 'number' && braking > 0) this.car?.setTrackBraking?.(braking);
     const isBest = this.runValid && (st.bestTime === null || t < st.bestTime);
     if (isBest) {
       const rec: BestRecord = {
@@ -501,13 +543,14 @@ export class RaceController implements IRaceController {
         time: t,
         splits: [...st.splits],
         archetype: this.archetype,
+        ...(this.origCar ? { car: this.origCar } : {}),
         date: Date.now(),
         resets: st.resets,
       };
-      this.best.save(stage.id, stage.seed, rec);
+      this.best.save(stage.id, stage.seed, rec, this.carKey);
       if (this.ghostEnabled) {
         try {
-          this.best.saveGhost(stage.id, stage.seed, this.archetype, this.recorder.track());
+          this.best.saveGhost(stage.id, stage.seed, this.carKey, this.recorder.track());
         } catch {
           /* storage full: keep the time, skip the ghost */
         }
@@ -543,11 +586,14 @@ export class RaceController implements IRaceController {
     let s: number;
     let d: number;
     if (stage.closed) {
-      d = Math.max(this.resetFromDist - back, 1);
+      // no splineRange on the lap circuits (the original's ±FLT_MAX): straight back, across the lap line too
+      d = this.resetFromDist - back;
       s = normS(stage, stage.startS + d);
     } else {
-      const lo = Math.max(stage.startS + 1, stage.validRange[0]);
-      const hi = Math.min(stage.length, stage.validRange[1]);
+      // FUN_004b3e50: FUN_0074d980(20, validRangeMin + 1) — the range minimum, not the start line
+      const range = rangeOf(stage);
+      const lo = Math.max(0, range[0] + 1);
+      const hi = Math.min(stage.length, range[1]);
       s = Math.min(hi, Math.max(lo, this.resetFromS - back));
       d = s - stage.startS;
     }
@@ -559,22 +605,38 @@ export class RaceController implements IRaceController {
     st.lateral = 0;
     st.wrongWay = false;
     this.clearDetectors();
-    this.caller.markPlayedUpTo(Math.max(this.resetFromS, s)); // §5.7: never replay after a reset
+    // §5.7: a reset leaves the played flags as they are (only restart / lap events clear them, FUN_0074b680 at
+    // 0x4afdc7 / 0x4b0152): every note the car passed has fired, so none replays on the way back past it
   }
 
   private placeAtStart(): void {
     const stage = this.stage!;
+    const s0 = this.gridS(stage);
     this.car!.reset(this.gridPose(stage), SETTLE_STEPS);
-    this.dist = this.prevDist = 0;
-    this.prevS = stage.startS;
-    this.state.s = stage.startS;
+    this.dist = this.prevDist = stage.closed ? wrapDelta(s0 - stage.startS, stage.length) : s0 - stage.startS;
+    this.prevS = s0;
+    this.state.s = s0;
     this.state.lateral = 0;
     this.clearDetectors();
   }
 
-  /** Start pose: on the line, or on the centre line `startGridBack` m behind it, facing the stage. */
+  /** Spline distance the car waits at: the stage's spawn grid (ported stages), else the grid spot. */
+  private gridS(stage: Stage): number {
+    const spawn = (stage as Stage & { spawnS?: number }).spawnS;
+    if (typeof spawn === 'number' && Number.isFinite(spawn)) return spawn;
+    return this.startGridBack > 0 ? normS(stage, stage.startS - this.startGridBack) : stage.startS;
+  }
+
+  /**
+   * Start pose. A stage with its own spawn grid (`spawnS`, the ported stages) has stage.startPose there: the
+   * original places the car on the centre spline at spawnGrid.s heading to s + 1 m (0x484769, single player:
+   * no grid column offset). Otherwise on the line, or `startGridBack` m behind it, facing the stage.
+   */
   private gridPose(stage: Stage) {
-    const pose = this.startGridBack > 0 ? simPoseOnStage(stage, stage.startS - this.startGridBack, 0, START_RAISE) : simStartPose(stage);
+    const spawn = (stage as Stage & { spawnS?: number }).spawnS;
+    let pose;
+    if (typeof spawn === 'number' && Number.isFinite(spawn)) pose = simStartPose(stage);
+    else pose = this.startGridBack > 0 ? simPoseOnStage(stage, stage.startS - this.startGridBack, 0, START_RAISE) : simStartPose(stage);
     return liftAboveGround(stage, pose, START_RAISE, this.world);
   }
 
@@ -607,7 +669,10 @@ export class RaceController implements IRaceController {
     if (pr) {
       if (Math.abs(pr.lateral) > AUTO_RESET_LATERAL_M) return this.requestReset('offTrack');
       if (pr.heightOffset < AUTO_RESET_BELOW_M) return this.requestReset('belowTrack');
-      if (!stage.closed && (pr.s < stage.validRange[0] || pr.s > stage.validRange[1])) return this.requestReset('outOfRange');
+      if (!stage.closed) {
+        const range = rangeOf(stage);
+        if (pr.s < range[0] || pr.s > range[1]) return this.requestReset('outOfRange');
+      }
     }
     if (!this.stuckResetEnabled) return;
     const kmh = tel.speedWorldKmh ?? tel.speedKmh;

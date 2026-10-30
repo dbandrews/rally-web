@@ -7,6 +7,7 @@
  */
 import { MATERIAL_SOLID_MIN, surfaceFromMaterial } from '../core/constants';
 import type { Obstacle, RayHit, SceneryInstance, SimV3, SurfaceId, WorldQuery } from '../core/types';
+import { segmentViaRaycast } from '../core/worldQuery';
 import type { RoadHit, RoadModel } from './road';
 import type { Terrain, TerrainHit } from './terrain';
 
@@ -178,19 +179,37 @@ export class ObstacleSet {
   }
 }
 
-/** SIM-space WorldQuery over a Ground + ObstacleSet. */
+/**
+ * SIM-space WorldQuery over a Ground + ObstacleSet. The ground is single-valued, so the optional `yHint` of the
+ * point queries is ignored; `segment` is the shared procedural adapter (src/core/worldQuery.ts).
+ */
 export function makeWorldQuery(ground: Ground, obstacles: ObstacleSet): WorldQuery {
   const H: GroundHit = { t: 0, nx: 0, ny: 1, nz: 0, px: 0, py: 0, pz: 0, material: 0 };
   const n3 = new Float64Array(3);
-  return {
-    raycast(o: SimV3, d: SimV3, maxDist: number): RayHit | null {
+  const wq: WorldQuery = {
+    raycast(o: SimV3, d: SimV3, maxDist: number, out?: RayHit): RayHit | null {
       if (!ground.raycast(o.x, o.y, -o.z, d.x, d.y, -d.z, maxDist, H)) return null;
+      if (out) {
+        // in place (WorldQuery.raycast `out`): the required fields; the optional ones are not this world's
+        out.dist = H.t;
+        out.normal.x = H.nx;
+        out.normal.y = H.ny;
+        out.normal.z = -H.nz;
+        out.material = H.material;
+        out.point.x = H.px;
+        out.point.y = H.py;
+        out.point.z = -H.pz;
+        return out;
+      }
       return {
         dist: H.t,
         normal: { x: H.nx, y: H.ny, z: -H.nz },
         material: H.material,
         point: { x: H.px, y: H.py, z: -H.pz },
       };
+    },
+    segment(o: SimV3, ray: SimV3, slot?: number, out?: RayHit): RayHit | null {
+      return segmentViaRaycast(wq, o, ray, slot, out);
     },
     heightAt(x: number, z: number): number {
       const h = ground.height(x, -z);
@@ -211,4 +230,5 @@ export function makeWorldQuery(ground: Ground, obstacles: ObstacleSet): WorldQue
       return obstacles.near(p.x, p.z, radius, out ?? []);
     },
   };
+  return wq;
 }

@@ -11,12 +11,14 @@
 import { API_VERSION, neutralControls, neutralRawInput } from '../core/constants';
 import type {
   CameraMode,
+  CarInfo,
   CarTelemetry,
   Controls,
   FrameStats,
   GameTunables,
   LoadStageOptions,
   ProbeInfo,
+  RaceEvent,
   RaceState,
   RallyTestApi,
   RawInput,
@@ -45,6 +47,9 @@ export interface TestApiHost {
   startRaceNow(): void;
   frameStats(): FrameStats;
   probe(): ProbeInfo;
+  carInfo(): CarInfo;
+  /** Race events since the last call (drained). */
+  drainApiEvents(): RaceEvent[];
 }
 
 declare global {
@@ -101,6 +106,8 @@ export function installTestApi(host: TestApiHost): RallyTestApi {
     },
     getFrameStats: () => clone(host.frameStats()),
     probe: () => clone(host.probe()),
+    getCarInfo: () => clone(host.carInfo()),
+    getRaceEvents: () => clone(host.drainApiEvents()),
   };
   window.__rally = api;
   return api;

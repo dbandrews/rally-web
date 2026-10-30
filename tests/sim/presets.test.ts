@@ -13,8 +13,17 @@ import { deepClone, getPath } from '../../src/core/paths';
 import type { ArchetypeId, CarParams, DeepPartial } from '../../src/core/types';
 import { TUNING_SCHEMA } from '../../src/debug/tuningSchema';
 import { ARCHETYPE_PARAMS, makeCarParams } from '../../src/sim/params';
-import { presetCarParams, presetOverrides, TUNING_PRESETS } from '../../src/sim/presets';
-import { driftHold, makeCar, maxHoldableBeta, powerStep, t1Accel, t3Brake, t4Lateral, t6Recovery, t8Power } from './harness';
+import { ORIG_CAR_IDS } from '../../src/core/constants';
+import { ORIG_CARS } from '../../src/sim/origCars';
+import { ORIG_CAR_NAMES, origCarPreset, presetCarParams, presetOverrides, TUNING_PRESETS } from '../../src/sim/presets';
+import { BUILT_ASSETS_DIR } from '../assets/builtAssetFetch';
+import { ctl, driftHold, makeCar, maxHoldableBeta, powerStep, run, t1Accel, t3Brake, t4Lateral, t6Recovery, t8Power } from './harness';
+
+interface Fs {
+  existsSync(p: string): boolean;
+  readFileSync(p: string, enc: 'utf8'): string;
+}
+const nodeFs = (await import(/* @vite-ignore */ 'node:' + 'fs')) as Fs;
 
 const ARCH: ArchetypeId[] = ['awd_wrc', 'fwd_hatch', 'rwd_classic'];
 const ARCADE = TUNING_PRESETS.find((p) => p.id === 'arcade-drift')!;
@@ -101,12 +110,18 @@ describe('"Arcade drift" (DEVIATION): holdable AWD / FWD slides, bounded side ef
       expect(maxHoldableBeta({ car: 'fwd_hatch', surface, params: params('fwd_hatch') }).maxHeld, surface).toBeGreaterThanOrEqual(35);
     }
   });
-  it('still safe on tarmac: T6 recovery < 1 s (sim 0.45-0.52 s), T7 max |β| ≤ 4° from every start state (sim 3.0-3.4°)', () => {
+  // v1.5 (§2.5.3 compression fraction: the tyre contact sits 3 cm lower, at the §7 reference depth 0.42 m): the rwd car
+  // with a SPOOLED turbo now holds a 5-6° power-on attitude while it accelerates 100 → 190 km/h and settles to 3.7° by
+  // 3 s (no sustained slide); every other car / start stays ≤ 4° (sim 2.9-3.4°)
+  it('still safe on tarmac: T6 recovery < 1 s (sim 0.45-0.52 s), T7 max |β| ≤ 4° (rwd spooled ≤ 7°, sim 6.2°) from every start state', () => {
     for (const car of ARCH) {
       const r = t6Recovery({ car, params: params(car) });
       expect(r.tBelow5, car).not.toBeNull();
       expect(r.tBelow5!, car).toBeLessThan(1);
-      for (const start of ['spec', 'steady', 'spooled'] as const) expect(t8Power({ car, surface: 'tarmac', params: params(car) }, 100, start, 3).maxBeta, `${car} ${start}`).toBeLessThanOrEqual(4);
+      for (const start of ['spec', 'steady', 'spooled'] as const) {
+        const lim = car === 'rwd_classic' && start === 'spooled' ? 7 : 4;
+        expect(t8Power({ car, surface: 'tarmac', params: params(car) }, 100, start, 3).maxBeta, `${car} ${start}`).toBeLessThanOrEqual(lim);
+      }
     }
   });
   it('fwd keeps its power understeer on corner entry (T9 window ≥ +25 %, sim +58 %); awd no longer tightens on power (T10 sim +4 %)', () => {
@@ -148,5 +163,83 @@ describe('"orig: class-4 AWD car" (original data, spec §3.2 v1.3)', () => {
     const t = t1Accel({ car: 'awd_wrc', surface: 'tarmac', params }, 12).t100!;
     expect(Math.abs(t - 3.51)).toBeLessThanOrEqual(3.51 * 0.12);
     expect(t8Power({ car: 'awd_wrc', surface: 'tarmac', params }, 100, 'spooled', 3).maxBeta).toBeLessThanOrEqual(4);
+  });
+});
+
+// =====================================================================================================
+describe('per-car presets: every original car (29)', () => {
+  const DRIVE_ARCH: Record<number, ArchetypeId> = { 0: 'fwd_hatch', 1: 'rwd_classic', 2: 'awd_wrc' };
+  const CAR_PRESETS = new Map(TUNING_PRESETS.filter((p) => p.id.startsWith('orig-car-')).map((p) => [p.id, p] as const));
+
+  it('there is exactly one preset per original car, with unique ids, labelled with the real car names', () => {
+    expect(CAR_PRESETS.size).toBe(ORIG_CARS.length);
+    expect(new Set(CAR_PRESETS.keys()).size).toBe(ORIG_CARS.length);
+    expect(Object.keys(ORIG_CAR_NAMES).sort()).toEqual([...ORIG_CAR_IDS].sort());
+    ORIG_CARS.forEach((car, i) => {
+      const p = CAR_PRESETS.get(`orig-car-${String(i).padStart(2, '0')}`)!;
+      expect(p.kind).toBe('original');
+      expect(p.car).toBe(car.archive);
+      const drive = car.drive === 0 ? 'FWD' : car.drive === 1 ? 'RWD' : 'AWD';
+      expect(p.label, p.id).toBe(`${ORIG_CAR_NAMES[car.archive]} (${drive})`);
+    });
+    expect(origCarPreset('ImprezaWRX')!.label).toBe('Subaru Impreza WRX (AWD)');
+  });
+
+  it('the display names are the built LocaleEnglish names (cars/<Name>/cars.json) when the assets are present', () => {
+    for (const id of ORIG_CAR_IDS) {
+      const f = `${BUILT_ASSETS_DIR}/cars/${id}/cars.json`;
+      if (!nodeFs.existsSync(f)) continue;
+      const json = JSON.parse(nodeFs.readFileSync(f, 'utf8')) as { name?: string };
+      expect(ORIG_CAR_NAMES[id], id).toBe(json.name);
+    }
+  });
+
+  it('each preset targets the archetype of its drive layout and carries that car\'s exact handling facts', () => {
+    ORIG_CARS.forEach((car, i) => {
+      const id = `orig-car-${String(i).padStart(2, '0')}`;
+      const preset = CAR_PRESETS.get(id)!;
+      expect(preset, car.archive).toBeDefined();
+      expect(preset.archetype).toBe(DRIVE_ARCH[car.drive]);
+      const params = presetCarParams(preset, DRIVE_ARCH[car.drive]);
+      expect(params.mass, car.archive).toBe(car.mass);
+      expect(params.torqueScale, car.archive).toBe(car.torqueScale);
+      expect(params.turboSize, car.archive).toBe(car.turboSize);
+      expect(params.nGears, car.archive).toBe(car.gearRatio.length - 1);
+      expect(params.gearRatio, car.archive).toEqual([...car.gearRatio]);
+      expect(params.wheelDrive, car.archive).toBe(car.drive);
+    });
+  });
+
+  it('simulation sanity: each car idles stably and pulls away in gear', () => {
+    for (let i = 0; i < ORIG_CARS.length; i++) {
+      const preset = CAR_PRESETS.get(`orig-car-${String(i).padStart(2, '0')}`)!;
+      const params = presetCarParams(preset, DRIVE_ARCH[ORIG_CARS[i].drive]);
+      const car = makeCar({ params });
+      run(car, 1, () => ctl({ throttle: 1 }));
+      const t = car.telemetry();
+      expect(t.speedKmh, preset.id).toBeGreaterThan(10);
+      expect(Math.abs(t.beta)).toBeLessThan(0.2);
+    }
+  });
+
+  it('the original\'s one no-turbo car is the only turboSize 0 preset, and its boost clamps to -1', () => {
+    const noTurbo = ORIG_CARS.filter((c) => c.turboSize === 0);
+    expect(noTurbo.length).toBe(1);
+    const i = ORIG_CARS.indexOf(noTurbo[0]);
+    const preset = CAR_PRESETS.get(`orig-car-${String(i).padStart(2, '0')}`)!;
+    const car = makeCar({ params: presetCarParams(preset, 'awd_wrc') });
+    run(car, 2, () => ctl({ throttle: 1 }));
+    expect(car.telemetry().boost).toBe(-1);
+    // it is also the original's torqueScale monster
+    expect(presetCarParams(preset, 'awd_wrc').torqueScale).toBe(1900);
+  });
+
+  it('the RWD classic car drives its rear axle harder than the front', () => {
+    const i = ORIG_CARS.findIndex((c) => c.drive === 1);
+    const preset = CAR_PRESETS.get(`orig-car-${String(i).padStart(2, '0')}`)!;
+    const car = makeCar({ params: presetCarParams(preset, 'rwd_classic') });
+    run(car, 1, () => ctl({ throttle: 1 }));
+    const t = car.telemetry();
+    expect(t.wheels[2].driveT).toBeGreaterThan(t.wheels[0].driveT);
   });
 });

@@ -1,12 +1,12 @@
 # rally-web
 
-An original browser rally game whose handling is modelled on the feel of early-2000s arcade rally games.
-The mechanics are specified in `docs/MECHANICS_SPEC.md` and implemented in `src/sim`. It uses Three.js
-rendering, a fixed 120 Hz physics step, a live tuning panel, a telemetry overlay, and headless tooling so
-agents can drive and check the game without a screen.
-
-All content is original: the stages, the cars (Corvane X4 AWD, Tessel F2 FWD, Ardent Classic RWD),
-liveries, art and the synthesised audio.
+A faithful port of my early-2000s Refractor2-engine rally game (`original_version/`, not in git) to the
+browser. The target is a **full faithful port**: it must play identically (the handling is ported exactly —
+`docs/MECHANICS_SPEC.md` is the normative record — and all 48 original track archives are ported with their
+real splines, elevations, widths, checkpoints and timing) and **look and sound identical** (the original's
+meshes, textures, liveries, sky, lighting and audio samples — see `PROGRESS.md` for status and roadmap).
+It uses Three.js rendering, a fixed 120 Hz physics step, a live tuning panel, a telemetry overlay, and
+headless tooling so agents can drive and check the game without a screen.
 
 **Play it:** https://dbandrews.github.io/rally-web/ (rebuilt by `.github/workflows/pages.yml` on every push to
 `main`; the workflow runs the tests and the build before publishing).
@@ -18,6 +18,15 @@ npm install
 npm run dev          # Vite dev server; open http://localhost:5173 (also reachable on the LAN)
 ```
 
+Optional, with the original game files in `original_version/` (not in git): convert the original assets
+(meshes, textures, sky, sounds) into `public/assets/` (gitignored). Without them the game uses its
+procedural visuals. Details: `docs/ASSETS.md`.
+
+```
+uv venv .venv && uv pip install -r tools/assets/requirements.txt    # once (numpy + Pillow)
+npm run assets
+```
+
 The start menu lets you pick the stage, car, tyres, gearbox, the setup options, the camera, co-driver calls
 and sound. Use the arrow keys to choose and change an option, then Enter to start. A 3-2-1 countdown runs,
 then you drive. To skip the menu, use the URL, for example `http://localhost:5173/?stage=testpad&menu=0`
@@ -27,13 +36,21 @@ Stages (`?stage=` id):
 
 | id | name | type |
 |---|---|---|
-| `pine-ridge` (default) | Pine Ridge | muddy forest rally, about 3.6 km: crests, a jump, a water splash, a hamlet, a hairpin pair |
+| `pine-ridge` (default without the original assets) | Pine Ridge | muddy forest rally, about 3.6 km: crests, a jump, a water splash, a hamlet, a hairpin pair |
 | `col-du-vent` | Col du Vent | tarmac hillclimb, about 2.4 km: hairpins, rock faces, a cobbled village |
 | `frostvale` | Frostvale | snow rally, about 3.1 km, with ice patches and snow berms |
 | `red-basin` | Red Basin | desert rally, about 3.6 km: loose sand with tarmac and gravel stretches, long straights, three jumps |
 | `kettle-park` | Kettle Park | rallycross circuit, 3 laps of about 1 km, tarmac and gravel, a tabletop jump |
 | `lake-skoga` | Lake Skoga | ice circuit on a frozen lake, 4 laps of about 1.4 km (fast 60-95 m sweepers) |
 | `testpad` | Proving Ground | flat tarmac pad for handling work (see below); no finish or automatic resets |
+
+Plus **the 48 ported originals** (`?stage=corsica-1-f` … `?stage=rallycross-3-r`): Corsica 1–3, Hillclimb
+1a–3c, Ice Racing 1–3, Kenya 1–3, New Zealand 1–3 and Rallycross 1–3, each in forward (`-f`) and reverse
+(`-r`) — the original roads' real centre lines and elevations, real widths, checkpoints, spawn grids and
+valid ranges, timed exactly as in the game (lap circuits: 5 laps, start line + one split per lap). With the
+original assets built (`npm run assets`) they use the original track meshes, collision mesh, objects, sky,
+lighting, cars and sounds; without them (or with `?orig=0`) their terrain and scenery are procedural dressings
+(`PROGRESS.md`).
 
 Your best time and a ghost of that run are saved in the browser (localStorage) for each stage, seed and car.
 On your next run the ghost drives alongside you, and the HUD shows split deltas against your best.
@@ -148,8 +165,8 @@ Unknown paths throw an error.
 
 | parameter | effect |
 |---|---|
-| `stage=<id>` | stage to load (default `pine-ridge`) |
-| `car=awd_wrc\|fwd_hatch\|rwd_classic` | car archetype |
+| `stage=<id>` | stage to load (default: `corsica-1-f` when its original assets are built, else `pine-ridge`) |
+| `car=awd_wrc\|fwd_hatch\|rwd_classic\|<original car>` | car archetype, or an original car by name (e.g. `ImprezaWRX`; default `Micra` when the cars are built) |
 | `tyre=tarmac\|intermediate\|gravel\|snow\|ice` (or 0-4) | tyres (default: the stage's recommendation) |
 | `trans=manual` | manual gearbox |
 | `seed=<n>` | stage seed: a different procedural layout of the same stage |
@@ -160,6 +177,8 @@ Unknown paths throw an error.
 | `timescale=0.5` | slow motion (0.05-4) |
 | `audio=0` / `ghost=0` | no sound / no ghost car |
 | `quality=low\|medium\|high` | pin the render quality (default: adaptive on a real GPU) |
+| `orig=0` | ignore the converted original assets (procedural visuals everywhere) |
+| `s3tc=0` | decode the original DXT textures in JavaScript instead of uploading them compressed |
 
 ## Checks
 
@@ -173,6 +192,7 @@ Unknown paths throw an error.
 | `npm run stages` | the autopilot drives every stage to the finish (all laps; on the pad, one loop) and checks health: no NaN or sim faults, never below the ground or flying off, never stuck, no automatic resets, no rollover, facing the travel direction. Table plus `artifacts/finish/<car>/<stage>/` screenshots; `--car fwd_hatch` etc. for the other cars |
 | `npm run drive -- …` | scripted or autopilot playtest with telemetry, health checks and screenshots (options in the header of `tools/drive.mjs`; `--until-finish` gives a deterministic full-stage run) |
 | `npm run check` | build, then `npm test`, then smoke |
+| `npm run assets -- --selftest` | checks the original-asset pipeline (archives, lookup rules, texture conversion) |
 
 The headless tools use Chromium's SwiftShader software WebGL. It runs at 5-30 fps, so `npm run stages`
 takes a few minutes. `--until-finish` and `--stepped` advance the simulation with `window.__rally.step()`
@@ -188,10 +208,11 @@ clearance and heading. See `docs/ARCHITECTURE.md` §6.
 |---|---|
 | `src/core` | shared contracts |
 | `src/sim` | car physics |
-| `src/world` | procedural stages and ground queries |
+| `src/world` | stage catalogue (7 procedural + the 48 ported originals in `ports/`), real track geometry (`portedBuilder.ts`), ground queries |
 | `src/render` | graphics |
 | `src/audio` | sound |
 | `src/input`, `src/game`, `src/ui`, `src/debug` | devices, race logic and autopilot, HUD and menus, tuning panel and overlay |
 | `src/main.ts` | wires them together |
+| `tools/assets` | the original-asset build (`npm run assets`, `docs/ASSETS.md`) |
 
 See `docs/ARCHITECTURE.md` for the module map, coordinate spaces, loop and test API.

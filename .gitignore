@@ -24,9 +24,18 @@ dist-ssr
 *.sw?
 artifacts
 
-# local reverse-engineering notes, decoder and extracted original configs (not part of the game)
 research/
+
+original_version/
 
 # Python bytecode
 __pycache__/
 *.pyc
+
+# original-asset pipeline (docs/ASSETS.md): converted packs, extraction cache, Python venv
+public/assets/
+.cache/
+.venv/
+
+# the user's own copy of the licensed soundtrack (?music=1, src/audio/orig/music.ts); never committed or built
+public/sound/

@@ -6,6 +6,7 @@
  */
 import { MATERIAL } from '../../src/core/constants';
 import type { Obstacle, RayHit, SimV3, SurfaceId, WorldQuery } from '../../src/core/types';
+import { segmentViaRaycast } from '../../src/core/worldQuery';
 
 export interface Profile {
   /** Ground height at z. */
@@ -26,7 +27,7 @@ export function createProfileWorld(profile: Profile, surface: SurfaceId = 'tarma
     const l = Math.hypot(1, s);
     return { x: 0, y: 1 / l, z: -s / l };
   };
-  return {
+  const world: ProfileWorld = {
     profile,
     raycast(o, d, maxDist): RayHit | null {
       if (below(o.x, o.y, o.z)) return { dist: 0, normal: normal(o.z), material: mat, point: { x: o.x, y: profile.h(o.z), z: o.z } };
@@ -49,6 +50,7 @@ export function createProfileWorld(profile: Profile, surface: SurfaceId = 'tarma
       }
       return null;
     },
+    segment: (o, ray, slot) => segmentViaRaycast(world, o, ray, slot),
     heightAt: (_x, z) => profile.h(z),
     normalAt: (_x, z) => normal(z),
     materialAt: () => mat,
@@ -60,6 +62,7 @@ export function createProfileWorld(profile: Profile, surface: SurfaceId = 'tarma
       return o;
     },
   };
+  return world;
 }
 
 /** Piecewise profile from segments; each segment covers [z0, z1) with its own h/dh. Before the first: flat at h(z0). */

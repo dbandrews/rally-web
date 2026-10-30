@@ -57,7 +57,9 @@ export const SYNTH_ENVS: Record<SynthEnv, EnvironmentPreset> = {
 
 const TERRAIN_FOR: Record<SurfaceId, SurfaceId> = {
   tarmac: 'grass', gravel: 'grass', gravelDeep: 'gravel', mud: 'grass', snow: 'snow', ice: 'snow', grass: 'grass',
-  sand: 'sand', cobbles: 'grass', water: 'grass',
+  sand: 'sand', cobbles: 'grass', water: 'grass', wood: 'grass', snowChunky: 'snow', snowDeep: 'snow',
+  snowAsphalt: 'snow', snowDitch: 'snow', leaf: 'grass', asphaltGrass: 'grass', gravelGrass: 'grass',
+  mudGrass: 'grass', mudDitch: 'mud', sandDeep: 'sand', sandDark: 'sand', sandDarkDeep: 'sand',
 };
 
 export interface SynthOptions {

@@ -465,8 +465,10 @@ describe('§7 T13-T15 crests and jumps', () => {
     const onCrest = samples.filter((s) => s.z >= -5 && s.z <= 40);
     expect(Math.min(...onCrest.map((s) => s.nContacts))).toBeGreaterThanOrEqual(3);
     expect(Math.max(...onCrest.map((s) => s.airMul))).toBe(1);
-    // static split ≈ 3850 / 3530 N; no crest unloading while the wheels touch (slope cos factor allowed)
-    for (const s of onCrest) for (const l of s.loads) inRange(l, 0.8 * 3530, 1.2 * 3850);
+    // static split ≈ 3850 / 3530 N; no crest unloading while the wheels touch (slope cos factor allowed). v1.5: the
+    // tyre contact sits 0.42 m below the CG (the §7 reference depth; v1.4 had 0.39 m), so the lagged load transfer under
+    // throttle is ≈ 8 % larger: min ≈ 0.795 × the rear static load
+    for (const s of onCrest) for (const l of s.loads) inRange(l, 0.78 * 3530, 1.2 * 3850);
     expect(Math.max(...samples.map((s) => Math.abs(s.heading)))).toBeLessThan(2);
   });
 

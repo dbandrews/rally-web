@@ -7,6 +7,7 @@ import { MATERIAL_SOLID_MIN, SURFACE_IDS } from '../../src/core/constants';
 import { Rng } from '../../src/core/rng';
 import type { BuiltStage, SimV3 } from '../../src/core/types';
 import { buildStage, listStages } from '../../src/world/stages';
+import { origCentreFacts } from './portedBounds';
 
 const built = new Map<string, BuiltStage>();
 const get = (id: string): BuiltStage => {
@@ -14,6 +15,23 @@ const get = (id: string): BuiltStage => {
   if (!b) built.set(id, (b = buildStage(id, 3)));
   return b;
 };
+
+/** True for a PORTED original stage (src/world/ports): the catalogue ids family-<layout>-<dir>. */
+const isPorted = (id: string): boolean => /^(corsica|hillclimb|iceracing|kenya|newzealand|rallycross)-\d/.test(id);
+
+/** Is THREE (x, z) on a ribbon edge line (the top of a kerb face) of any section of the road? */
+function onSomeRibbonEdge(b: BuiltStage, x: number, z: number): boolean {
+  const road = b.stage.road;
+  for (let i = 1; i < road.length; i++) {
+    for (const [a, c] of [[road[i - 1].left, road[i].left], [road[i - 1].right, road[i].right]]) {
+      const dx = c.x - a.x, dz = c.z - a.z;
+      const l2 = dx * dx + dz * dz;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / l2)) : 0;
+      if (Math.hypot(a.x + dx * t - x, a.z + dz * t - z) < 0.05) return true;
+    }
+  }
+  return false;
+}
 
 /** Random sim-space (x, z) inside the heightfield, half of them near the road. */
 function randomPoint(b: BuiltStage, rng: Rng): { x: number; z: number } {
@@ -76,7 +94,15 @@ describe.each(listStages().map((s) => [s.id]))('ground %s', (id) => {
           // kerb face under a ribbon edge: the hit is on the side of the road bed, below the ribbon
           expect(hit.point.y).toBeLessThan(g + 3e-3);
           const pr = get(id).stage.project({ x: hit.point.x, y: hit.point.y, z: -hit.point.z });
-          expect(Math.abs(Math.abs(pr.lateral) - get(id).stage.roadAt(pr.s).width / 2)).toBeLessThan(0.05);
+          const edgeErr = Math.abs(Math.abs(pr.lateral) - get(id).stage.roadAt(pr.s).width / 2);
+          if (isPorted(id) && edgeErr >= 0.05) {
+            // ported: at one of the original's grade-separated crossings (corsica 3's overpass) the
+            // horizontally nearest centre line is the road crossing UNDER the deck whose kerb face was
+            // hit — the hit must still be on the edge of some section, at that crossing
+            const ops = origCentreFacts(id).overpasses;
+            expect(ops.some((o) => Math.abs(o.sLow - pr.s) < 30 || Math.abs(o.sHigh - pr.s) < 30)).toBe(true);
+            expect(onSomeRibbonEdge(get(id), hit.point.x, -hit.point.z)).toBe(true);
+          } else expect(edgeErr).toBeLessThan(0.05);
           // only shallow rays get the horizontal kerb normal; steep (wheel-like) rays get the road normal
           if (down >= 0.7) expect(hit.normal.y).toBeGreaterThan(0.8);
           else expect(Math.abs(hit.normal.y)).toBeLessThan(1e-9);
@@ -95,7 +121,11 @@ describe.each(listStages().map((s) => [s.id]))('ground %s', (id) => {
       const p = randomPoint(get(id), rng);
       const n = world.normalAt(p.x, p.z);
       expect(Math.hypot(n.x, n.y, n.z)).toBeCloseTo(1, 6);
-      expect(n.y).toBeGreaterThan(0.1); // cut faces can be near-vertical rock walls
+      // Cut faces can be near-vertical rock walls. Ported hairclimb corridors stack road legs
+      // tens of metres apart horizontally and 100+ m apart in elevation: the terrain between
+      // them is a near-vertical face BY GEOMETRY (the original's collision meshes too) — a
+      // looser floor there than for the procedural stages.
+      expect(n.y).toBeGreaterThan(isPorted(id) ? 0.03 : 0.1);
       const hit = world.raycast({ x: p.x, y: world.heightAt(p.x, p.z) + 1, z: p.z }, { x: 0, y: -1, z: 0 }, 3)!;
       expect(Math.hypot(hit.normal.x, hit.normal.y, hit.normal.z)).toBeCloseTo(1, 6);
       // the normal is perpendicular to tiny steps on the same facet (sim-space gradient check)

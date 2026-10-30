@@ -1,9 +1,10 @@
 /**
  * src/sim/params.ts — OWNED BY THE SIM BUILDER.
  *
- * Archetype parameter sets (§3.1 shared + §3.2 per archetype), the live surface/tyre table (§4.3/§4.4),
+ * Archetype parameter sets (§3.1 shared + §3.2 per archetype), the live surface/tyre table (§4.3/§4.4: 23 rows,
+ * one per original material 0..22, values = PhysicsParam.con),
  * and friction helpers (§4.2). Every value was re-verified against docs/MECHANICS_SPEC.md §3/§4
- * (tests/sim/car.test.ts checks §3.2 and all 50 μs/μk cells of the §4.3 table).
+ * (tests/sim/car.test.ts checks §3.2 and all 115 μs/μk cells of the §4.3 table).
  * muStatic/muKinetic are the pure §4.2 formulas; the sim additionally multiplies by params.muGlobalScale [D].
  *
  * REQUIRED EXPORTS (used by main.ts / other modules — keep these signatures):
@@ -92,6 +93,7 @@ function shared(a: ArchetypeSpecific): CarParams {
     airKZY: 1.25,
     airKZZ: 2.0,
     hullBottomY: -0.33,
+    // unused since v1.5: the tyre loads take nb from the hull push direction (B+0x14c, MECHANICS_SPEC §2.5.5)
     bodyGroundShare: 0,
     // Engine
     torqueScaleFactor: 1.0,
@@ -349,6 +351,91 @@ export const DEFAULT_SURFACE_TABLE: Readonly<SurfaceTable> = Object.freeze({
   ]),
   cobbles: surf('cobbles', 13, false, [0.9, 0.8, 0.0, 1.0, 0.0, 0.075, 1], 2.5, 0.375, same5(row(1.75, -0.298, 0.8, 3.1, 1.1))),
   water: surf('water', 3, false, [0.9, 0.9, 0.0, 1.0, 1.0, 0.0, 0], 0.125, 0.03125, ASPHALT_TYRES()),
+  // ---- appended original materials (rally-web ids 10..22), PhysicsParam.con rows verbatim (§4.4). DEEP = the
+  // FUN_006d0410 switch {0, 9, 11, 12, 18, 19, 22}; jitter / roughness = FUN_006c8ef0 / FUN_0075e210 per orig id.
+  wood: surf('wood', 6, false, [0.8, 0.9, 0.0, 0.4, 0.0, 0.05, 1], 2.5, 0.375, [
+    row(1.526, -0.259, 0.8, 1.0, 1.0),
+    row(1.6, -0.272, 0.8, 1.0, 1.0),
+    row(1.6, -0.272, 0.8, 1.0, 1.0),
+    row(1.6, -0.272, 0.8, 1.0, 1.0),
+    row(1.6, -0.272, 0.8, 1.0, 1.0),
+  ]),
+  snowChunky: surf('snowChunky', 8, false, [0.72, 0.5, 0.02, 0.3, 0.25, 0.01, 0], 0.25, 0.0625, [
+    row(0.25, -0.043, 0.8, 2.002, 1.2),
+    row(0.35, -0.06, 0.8, 2.002, 1.2),
+    row(0.35, -0.06, 0.8, 2.002, 1.2),
+    row(1.35, -0.23, 0.8, 2.002, 1.2),
+    row(1.55, -0.264, 0.8, 2.002, 1.2),
+  ]),
+  snowDeep: surf('snowDeep', 9, true, [0.8, 0.25, 0.04, 0.2, 0.0, 0.015, 1], 0.5, 0.125, [
+    row(0.25, -0.043, 0.8, 10.075, 1.5),
+    row(0.35, -0.06, 0.8, 10.075, 1.5),
+    row(0.35, -0.06, 0.8, 10.075, 1.5),
+    row(1.35, -0.23, 0.8, 10.075, 1.5),
+    row(1.55, -0.264, 0.8, 10.075, 1.5),
+  ]),
+  // the exe's SNOWWET; rows equal to SNOW (7)
+  snowAsphalt: surf('snowAsphalt', 10, false, [0.72, 0.5, 0.02, 0.3, 0.25, 0.005, 0], 0.25, 0.0625, [
+    row(0.35, -0.06, 0.8, 1.2, 1.2),
+    row(0.45, -0.076, 0.8, 1.2, 1.2),
+    row(0.45, -0.076, 0.8, 1.2, 1.2),
+    row(1.35, -0.23, 0.8, 1.2, 1.2),
+    row(1.45, -0.247, 0.8, 1.2, 1.2),
+  ]),
+  snowDitch: surf('snowDitch', 11, true, [0.8, 0.25, 0.04, 0.3, 0.0, 0.02, 1], 0.5, 0.125, [
+    row(0.25, -0.043, 0.8, 10.068, 1.5),
+    row(0.35, -0.06, 0.8, 10.068, 1.5),
+    row(0.35, -0.06, 0.8, 10.068, 1.5),
+    row(1.35, -0.23, 0.8, 10.068, 1.5),
+    row(1.55, -0.264, 0.8, 10.068, 1.5),
+  ]),
+  leaf: surf('leaf', 14, false, [0.45, 0.9, 0.02, 0.35, 0.0, 0.02, 1], 0.125, 0.03125, [
+    row(1.75, -0.213, 0.8, 1.0, 1.0),
+    row(1.7, -0.213, 0.8, 1.0, 1.0),
+    row(1.6, -0.213, 0.8, 1.0, 1.0),
+    row(1.5, -0.213, 0.8, 1.0, 1.0),
+    row(1.4, -0.213, 0.8, 1.0, 1.0),
+  ]),
+  asphaltGrass: surf('asphaltGrass', 15, false, [0.72, 0.8, 0.01, 0.4, 0.0, 0.015, 0], 0.125, 0.03125, [
+    row(1.825, -0.276, 0.8, 1.116, 1.2),
+    row(1.725, -0.276, 0.8, 1.116, 1.2),
+    row(1.7, -0.276, 0.8, 1.116, 1.2),
+    row(1.65, -0.276, 0.8, 1.116, 1.2),
+    row(1.625, -0.276, 0.8, 1.116, 1.2),
+  ]),
+  // DiffRollK 2.51 on tyres 0 and 4, 1.51 on 1..3 (as shipped)
+  gravelGrass: surf('gravelGrass', 16, false, [0.7, 0.8, 0.02, 0.4, 0.0, 0.017, 0], 1.0, 0.25, [
+    row(1.4, -0.238, 0.8, 1.35, 2.51),
+    row(1.45, -0.238, 0.8, 1.35, 1.51),
+    row(1.5, -0.238, 0.8, 1.35, 1.51),
+    row(1.45, -0.238, 0.8, 1.35, 1.51),
+    row(1.4, -0.238, 0.8, 1.35, 2.51),
+  ]),
+  mudGrass: surf('mudGrass', 17, false, [0.7, 0.8, 0.02, 0.35, 0.0, 0.017, 0], 1.0, 0.25, [
+    row(1.3, -0.221, 0.8, 1.505, 1.4),
+    row(1.35, -0.221, 0.8, 1.505, 1.4),
+    row(1.4, -0.221, 0.8, 1.505, 1.4),
+    row(1.35, -0.221, 0.8, 1.505, 1.4),
+    row(1.3, -0.221, 0.8, 1.505, 1.4),
+  ]),
+  // DiffRollK 20.905 on tyres 0 and 4, 1.905 on 1..3 (as shipped)
+  mudDitch: surf('mudDitch', 18, true, [0.65, 0.25, 0.04, 0.4, 0.0, 0.02, 1], 1.25, 0.275, [
+    row(1.45, -0.247, 0.8, 10.064, 20.905),
+    row(1.45, -0.247, 0.8, 10.064, 1.905),
+    row(1.45, -0.247, 0.8, 10.064, 1.905),
+    row(1.45, -0.247, 0.8, 10.064, 1.905),
+    row(1.45, -0.247, 0.8, 10.064, 20.905),
+  ]),
+  sandDeep: surf('sandDeep', 19, true, [0.9, 0.25, 0.04, 0.55, 0.0, 0.01, 1], 1.25, 0.1875, same5(row(1.65, -0.28, 0.8, 5.024, 1.5))),
+  // tyre rows equal to SAND (5)
+  sandDark: surf('sandDark', 21, false, [0.85, 0.75, 0.02, 0.45, 0.0, 0.01, 0], 0.5, 0.125, [
+    row(0.899, -0.136, 0.8, 1.15, 1.15),
+    row(1.28, -0.201, 0.8, 1.15, 1.15),
+    row(1.449, -0.229, 0.8, 1.15, 1.15),
+    row(1.35, -0.213, 0.8, 1.15, 1.15),
+    row(1.35, -0.213, 0.8, 1.15, 1.15),
+  ]),
+  sandDarkDeep: surf('sandDarkDeep', 22, true, [0.9, 0.75, 0.04, 0.25, 0.0, 0.01, 1], 1.25, 0.1875, same5(row(1.65, -0.28, 0.8, 5.024, 1.5))),
 });
 
 /** Fresh live surface table (the sim and tuning panel share this object). */

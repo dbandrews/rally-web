@@ -183,6 +183,7 @@ export class FakeCar {
       rpmRedline: 8250, rpmMax: 8750, gear: 1, nGears: 6, shifting: false, boost: 0, boostFrac: 0, transmission: 'auto', tyreType: 2,
       throttle: 0, brake: 0, handbrake: 0, steer: 0, steerAngle: 0, beta: 0, yawRate: 0, aLat: 0, aLong: 0, aVert: 0, nContacts: 4,
       airborne: false, airMul: 1, bodyOnGround: false, yawCapActive: false, yawRateCapActive: false, parked: false, impactImpulse: 0, simFaults: 0,
+      collision: { hull: false, hullMaterial: 0, hullStrength: 0, objectHits: 0, objectType: -1, objectStrength: 0, bush: false },
       posSim: { x: 0, y: 0, z: 0 }, quatSim: { w: 1, x: 0, y: 0, z: 0 }, velSim: { x: 0, y: 0, z: 0 }, velLocal: { x: 0, y: 0, z: 0 },
       angVelLocal: { x: 0, y: 0, z: 0 }, pos: { x: 0, y: 0, z: 0 }, quat: { w: 1, x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 },
       wheels: [wheel(), wheel(), wheel(), wheel()] as Quad<WheelTelemetry>,

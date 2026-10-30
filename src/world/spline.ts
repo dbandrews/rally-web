@@ -65,8 +65,8 @@ export function catmullRom(pts: readonly P2[], closed: boolean, maxStep = 0.25):
  * Closed: n points, the closing segment n-1 → 0 has the same spacing (the first point is not repeated).
  */
 export function resampleUniform(
-  xs: readonly number[],
-  zs: readonly number[],
+  xs: ArrayLike<number>,
+  zs: ArrayLike<number>,
   closed: boolean,
   ds: number,
 ): { x: Float64Array; z: Float64Array; length: number; step: number } {

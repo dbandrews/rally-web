@@ -38,22 +38,41 @@ export type Quad<T> = [T, T, T, T];
 export type ArchetypeId = 'awd_wrc' | 'fwd_hatch' | 'rwd_classic';
 
 /**
- * The ten rally-web surfaces of §4.3. The numeric MATERIAL id of a surface is its index in
- * constants.ts SURFACE_IDS (0..9). WorldQuery hits carry that material id. Material ids >= 32 are
- * "solid but not ground" (walls, rocks, buildings): wheels treat them as no contact (§2.5.1), the
- * chassis collision may still use them. MATERIAL_NONE (255) = no material.
+ * The 23 rally-web surfaces = ONE PER ORIGINAL MATERIAL (gcm face byte / PhysicsParam.con row 0..22, §4.3/§4.4).
+ * The numeric MATERIAL id of a surface is its index in constants.ts SURFACE_IDS (0..22). WorldQuery hits carry
+ * that material id. Material ids >= 32 are "solid but not ground" (walls, rocks, buildings): wheels treat them as
+ * no contact (§2.5.1), the chassis collision may still use them. MATERIAL_NONE (255) = no material.
+ *
+ * NUMBERING TRAP: the rally-web material id is NOT the original byte (gcm 0 = GRASS, rally-web 0 = tarmac).
+ * Convert with constants.ts materialFromOrig(byte) / origFromMaterial(id) (ORIG_MATERIAL_TO_MATERIAL), never by
+ * passing the raw byte to surfaceFromMaterial / SURFACE_IDS.
+ *
+ * Indices 0..9 are the original ten (unchanged); 10..22 were appended (orig ids in brackets).
  */
 export type SurfaceId =
-  | 'tarmac'
-  | 'gravel'
-  | 'gravelDeep'
-  | 'mud'
-  | 'snow'
-  | 'ice'
-  | 'grass'
-  | 'sand'
-  | 'cobbles'
-  | 'water';
+  | 'tarmac' // 0  [1 ASPHALT]
+  | 'gravel' // 1  [2 GRAVEL]
+  | 'gravelDeep' // 2  [12 GRAVELDEEP]
+  | 'mud' // 3  [4 MUD]
+  | 'snow' // 4  [7 SNOW]
+  | 'ice' // 5  [20 ICEASPHALT]
+  | 'grass' // 6  [0 GRASS]
+  | 'sand' // 7  [5 SAND]
+  | 'cobbles' // 8  [13 COBBLES]
+  | 'water' // 9  [3 WATERASPHALT]
+  | 'wood' // 10 [6 WOOD]
+  | 'snowChunky' // 11 [8 SNOWCHUNKY]
+  | 'snowDeep' // 12 [9 SNOWDEEP]
+  | 'snowAsphalt' // 13 [10 SNOWASPHALT, the exe's SNOWWET]
+  | 'snowDitch' // 14 [11 SNOWDITCH]
+  | 'leaf' // 15 [14 LEAF]
+  | 'asphaltGrass' // 16 [15 ASPHALTGRASS]
+  | 'gravelGrass' // 17 [16 GRAVELGRASS]
+  | 'mudGrass' // 18 [17 MUDGRASS]
+  | 'mudDitch' // 19 [18 MUDDITCH]
+  | 'sandDeep' // 20 [19 SANDDEEP]
+  | 'sandDark' // 21 [21 SANDDARK]
+  | 'sandDarkDeep'; // 22 [22 SANDDARKDEEP]
 
 /** Tyre type column of the tyre table (§4.1): 0 tarmac, 1 intermediate, 2 gravel, 3 snow, 4 ice. */
 export type TyreType = 0 | 1 | 2 | 3 | 4;
@@ -408,7 +427,8 @@ export interface SurfaceDef {
   id: SurfaceId;
   /** Material id used by WorldQuery hits = index in SURFACE_IDS. */
   material: number;
-  /** The original's material id (§4.3 "orig. id"), documentation only. */
+  /** The original's material id = gcm face byte = PhysicsParam.con row (§4.3 "orig. id"); one surface per id,
+   *  equal to constants.ts SURFACE_ORIG_ID[id] (origFromMaterial(material)). */
   origId: number;
   /** DEEP set membership: lateral ×sideFrictionFactor and bogging drag (§2.6.1, §2.7). */
   deep: boolean;
@@ -527,15 +547,33 @@ export interface IInputFilter {
 // World query (sim space). Implemented by src/world; used by src/sim every substep.
 // =====================================================================================================
 
+/**
+ * A ray / segment hit (SIM space). `dist`, `normal`, `material`, `point` are always set. The optional fields
+ * are always filled by `WorldQuery.segment` (every implementation) and by mesh worlds' `raycast`; a procedural
+ * `raycast` may leave them out.
+ */
 export interface RayHit {
-  /** Distance from origin along dir (m), 0 ≤ dist ≤ maxDist. */
+  /** Distance from origin along dir (m), 0 ≤ dist ≤ maxDist (segment(): dist = t·|raySim|). */
   dist: number;
-  /** Unit surface normal at the hit, SIM space. */
+  /** Unit surface normal at the hit, SIM space (mesh worlds: the stored flat face normal, gcm.md §3.1). */
   normal: SimV3;
-  /** Material id (SURFACE_IDS index, or ≥ 32 for non-ground solids; §2.5.1). */
+  /** rally-web material id (SURFACE_IDS index, or ≥ 32 for non-ground solids, MATERIAL_NONE 255 = the
+   *  original's −1; §2.5.1). Mesh worlds: materialFromOrig(origMaterial). */
   material: number;
   /** Hit point, SIM space. */
   point: SimV3;
+  /** Segment parameter of the hit, 0..1 along the segment (raycast: dist / maxDist). */
+  t?: number;
+  /** dot(end − v0, n) ≤ 0, m: how far the segment END (origin + raySim) lies below the hit face's plane
+   *  (the original's W+0xc0 / hull depth, gcm.md §3.4). */
+  depth?: number;
+  /** dot(n, raySim) with the UNnormalised ray (< 0 on a hit; the original's W+0xc4 = −SL·(n·up), gcm.md §3.5). */
+  cos?: number;
+  /** Raw original material byte 0..255 (gcm face byte; 255 = the original's −1). Procedural worlds:
+   *  origFromMaterial(material). Hull contacts skip origMaterial 255 (gcm.md §3.6: "material ≠ −1"). */
+  origMaterial?: number;
+  /** Face index in the stage's collision mesh (debugging only; absent / −1 for procedural worlds). */
+  face?: number;
 }
 
 /** Static obstacle approximated as a vertical cylinder (trees, rocks, posts, buildings). */
@@ -547,27 +585,121 @@ export interface Obstacle {
   height: number;
 }
 
+/** Result of ObjectCollider.segment (filled in place; valid until the next call with the same `out`). */
+export interface ObjectSegmentHit {
+  /** The hit face's normal mapped through the object transform (outward; NOT re-normalised when the object is
+   *  scaled, exactly as the original returns it), SIM space. */
+  normal: SimV3;
+  /** Hit point, SIM space. */
+  point: SimV3;
+  /** dot(end − v0, n) in the mesh's LOCAL (unscaled) frame, ≤ 0: how far the segment end lies behind the face. */
+  depth: number;
+}
+
+/**
+ * A static object's own collision mesh (MESH worlds only: the object's CollisionMesh.Simple under its transform,
+ * docs/orig/collision.md §4). The car collides with it like the original's object pass (FUN_004a7bc0 →
+ * FUN_006d1a80): hull segments from the previous COM to each hull point, contacts into the body solver.
+ */
+export interface ObjectCollider {
+  /** Placement index in Objects.con order. */
+  readonly object: number;
+  readonly kind: SceneryKind;
+  /** ObjectTemplate.collisionMaterial (raw, −1 = none). */
+  readonly material: number;
+  /** The transform's translation (the object's origin), SIM space. */
+  readonly origin: SimV3;
+  /** Bounding sphere (centre SIM, radius m) of the scaled render box. */
+  readonly pos: SimV3;
+  readonly radius: number;
+  /** Render box, local frame (unscaled), and the transform rows (local → SIM, row vectors v·m + origin, scale
+   *  included): the box corners for the object pass's overlap test. */
+  readonly boxMin: SimV3;
+  readonly boxMax: SimV3;
+  readonly m: ArrayLike<number>;
+  /** The original's mesh query (0x597810): segment o → o + ray (SIM). Fills `out`; false on a miss. */
+  segment(o: SimV3, ray: SimV3, out: ObjectSegmentHit): boolean;
+}
+
 /**
  * Physics view of a stage. ALL arguments and results are SIM space (sim z = -three z).
  * Must be fast: ~4 wheel rays + up to 12 hull rays per car per substep at 120 Hz.
+ *
+ * Two kinds of implementation:
+ *   - PROCEDURAL worlds (src/world/ground.ts, the test worlds): a single-valued ground (road ribbon over the
+ *     heightfield). `segment` goes through the shared adapter src/core/worldQuery.ts `segmentViaRaycast`.
+ *   - MESH worlds (src/world/orig/**, the original Track.gcm collision mesh, research/formats/gcm.md):
+ *     implement `segment` LITERALLY (gcm.md §3.2-3.4) and `raycast(o, dir, maxDist)` =
+ *     `segment(o, dir·maxDist, -1)` with dist = t·maxDist (src/core/worldQuery.ts `raycastViaSegment`).
+ *     An origin below the ground is a MISS there (the original misses; no dist-0 hit). Off the mesh nothing
+ *     is hit (the car falls; the race's §5.4 "hand of god" reset catches it), while heightAt / normalAt /
+ *     materialAt / surfaceAt fall back to the procedural terrain (never NaN).
+ *
+ * `yHint` (optional, sim y) on the point queries selects a level where the ground is multi-valued (bridges,
+ * overpasses, overhangs): the HIGHEST ground at or below yHint + 1 m (GROUND_HINT_ABOVE_M), else the LOWEST
+ * ground above it (src/core/worldQuery.ts `pickGroundY`). Without yHint: the highest ground (today's
+ * behaviour). Procedural worlds are single-valued and may ignore it.
  */
 export interface WorldQuery {
   /**
    * First intersection of the ray origin + t·dir with the drivable ground (terrain + road), t ∈ [0, maxDist].
-   * `dir` is unit length. If the origin is already below the ground (e.g. a fully compressed wheel),
-   * returns dist 0 with the ground normal at that point. Returns null if nothing is hit within maxDist.
+   * `dir` is unit length. Returns null if nothing is hit within maxDist.
+   * PROCEDURAL worlds: if the origin is already below the ground (e.g. a fully compressed wheel), returns
+   * dist 0 with the ground normal at that point (legacy contract). MESH worlds: = segment(o, dir·maxDist, -1),
+   * an origin below the ground is a miss (the original). Code that needs the original semantics calls segment().
+   * `out` (optional): a RayHit (with its own normal / point objects) the hit is written into and returned, valid
+   * until the next call with the same `out`; implementations may ignore it and return a fresh object, so callers
+   * always use the RETURN value. Without `out` the result is a fresh object.
    */
-  raycast(originSim: SimV3, dirSim: SimV3, maxDist: number): RayHit | null;
-  /** Ground height (sim y) at sim (x, z). Outside the stage: a sensible fallback (edge clamp), never NaN. */
-  heightAt(xSim: number, zSim: number): number;
-  /** Unit ground normal (sim) at sim (x, z). */
-  normalAt(xSim: number, zSim: number): SimV3;
-  /** Material id at sim (x, z) (road surface on the road, terrain material elsewhere). */
-  materialAt(xSim: number, zSim: number): number;
-  /** Surface id at sim (x, z), or null for non-ground materials. */
-  surfaceAt(xSim: number, zSim: number): SurfaceId | null;
+  raycast(originSim: SimV3, dirSim: SimV3, maxDist: number, out?: RayHit): RayHit | null;
+  /**
+   * The original's collision query (gcm.md §3.2-3.4 + Verification): the SEGMENT originSim → originSim + raySim.
+   *   - `raySim` is the full segment vector (NOT unit, not dir + length): wheels pass −springLength·bodyUp from
+   *     the mount, hull points pass (hullPoint − previous-step COM) from that COM (gcm.md §3.5, §3.6).
+   *   - ONE-SIDED: only front faces (dot(raySim, n) < 0); the start must lie STRICTLY above the face plane
+   *     (d0 > 0) and the end on/below it (depth ≤ 0). Back faces, parallel rays and a start on/below the
+   *     plane never hit.
+   *   - The FIRST face in the original traversal order wins (cells along the ray, blocks in cell-list order,
+   *     faces in sub-cell order, the slot's cached face first) — NOT the nearest. On cliffs / coplanar
+   *     duplicates the two differ (gcm.md §3.4 "Which triangle wins").
+   *   - `slot` selects the per-slot face cache: wheel rays `wheelIndex + 24·carIndex`, hull segments
+   *     `8 + hullIndex + 24·carIndex` (src/core/worldQuery.ts wheelSlot / hullSlot; CarSimOptions.slotBase =
+   *     24·carIndex); −1 / undefined = no cache; slots < 5000 (MAX_FACE_SLOTS).
+   *   - The hit fills every RayHit field: dist = t·|raySim|, t, depth = dot(end − v0, n), cos = dot(n, raySim),
+   *     origMaterial (raw byte), material = materialFromOrig(origMaterial), face. Returns null on a miss.
+   * Mesh worlds implement it literally; procedural worlds return segmentViaRaycast(this, originSim, raySim, slot,
+   * out) (src/core/worldQuery.ts: same fields, start below the ground → miss, slot ignored).
+   *   - `out` (optional, the hot path: CarSim's 4 wheel + up to 12 hull segments per 120 Hz substep): a RayHit the
+   *     hit is written into (every field, normal / point in place) and returned, valid until the next call with the
+   *     same `out`. Implementations may ignore it and return a fresh object, so callers always use the RETURN value.
+   *     Without `out` the result is a fresh object the caller may keep.
+   */
+  segment(originSim: SimV3, raySim: SimV3, slot?: number, out?: RayHit): RayHit | null;
+  /** Ground height (sim y) at sim (x, z) (level per `yHint`, see above). Outside the stage / off the mesh: a
+   *  sensible fallback (edge clamp / the procedural terrain), never NaN. */
+  heightAt(xSim: number, zSim: number, yHint?: number): number;
+  /** Unit ground normal (sim) at sim (x, z), of the same level as heightAt(x, z, yHint). */
+  normalAt(xSim: number, zSim: number, yHint?: number): SimV3;
+  /** Material id at sim (x, z) (road surface on the road, terrain material elsewhere), same level. */
+  materialAt(xSim: number, zSim: number, yHint?: number): number;
+  /** Surface id at sim (x, z), or null for non-ground materials, same level. */
+  surfaceAt(xSim: number, zSim: number, yHint?: number): SurfaceId | null;
   /** Obstacles whose cylinder comes within `radius` of `posSim` (horizontal distance). May reuse `out`. */
   obstaclesNear(posSim: SimV3, radius: number, out?: Obstacle[]): Obstacle[];
+  /**
+   * Optional: SOFT objects (bushes: hasCollision without collision geometry; radius = the footprint's smallest half
+   * extent, height = the box height) whose footprint comes within `radius` of `posSim` (horizontal, as
+   * obstaclesNear). They never push the car; the sim reports a contact as CarTelemetry.collision.bush. Mesh worlds
+   * (src/world/orig) implement it; procedural worlds have no soft objects.
+   */
+  softNear?(posSim: SimV3, radius: number, out?: Obstacle[]): Obstacle[];
+  /**
+   * Optional (MESH worlds with object meshes, RCOL v2): the static objects whose bounding sphere comes within
+   * `radius` of `posSim` (3-D), each with its own collision mesh. When present the sim collides the car with these
+   * meshes (the original's object pass) instead of the obstaclesNear cylinders, which then only serve as hints
+   * (autopilot). May reuse `out`.
+   */
+  objectCollidersNear?(posSim: SimV3, radius: number, out?: ObjectCollider[]): ObjectCollider[];
 }
 
 // =====================================================================================================
@@ -590,6 +722,17 @@ export interface CarSimOptions {
   surfaces?: SurfaceTable;
   /** Seed for the sim RNG (rpm wobble, §2.3.5; determinism T20). Default 1. */
   seed?: number;
+  /**
+   * Base of this car's face-cache slots for WorldQuery.segment = 24·carIndex (the original's car+0xa4·24;
+   * player 0). Default 0. Wheel w uses slot slotBase + w, hull point i slot slotBase + 8 + i
+   * (src/core/worldQuery.ts wheelSlot / hullSlot).
+   */
+  slotBase?: number;
+  /**
+   * Original car whose chassis hull the §2.9 probes use (its Car_<Name>.col, the first 12 points, src/sim/origHulls.ts):
+   * an ORIG_CAR_IDS name (RaceSelection.car). Absent / null / unknown = the archetype's §3.4 box.
+   */
+  origCar?: string | null;
 }
 
 /** Per-wheel values for the renderer. */
@@ -636,6 +779,52 @@ export interface WheelTelemetry {
   /** Same point in THREE space (skid marks, dust). */
   contactPointThree: ThreeV3;
   visual: WheelVisual;
+}
+
+/**
+ * The original's collision state of one car, as its CarSoundPlayer reads it (research/formats/sound.md §7;
+ * FUN_00746c80 impacts, FUN_00746ec0 bush; verified on the exe, docs/orig/audio.md). Three sources, in the
+ * reader's order:
+ *   1. the OBJECT record (car record +0x30 flag / +0x34 type / +0x38 strength), written by the object pass
+ *      FUN_004a7bc0 (0x4a81a3) when the car hits a static object's collision mesh: type = the object template's
+ *      collisionMaterial RAW (shipped data: 6 = trees / wood, 1 = other hard objects; absent = −1, which plays
+ *      nothing), strength = the body impulse − 100 (B+0x19c). The original's flag stays set until the sound reader
+ *      clears it: rally-web counts the hits instead (`objectHits`), a consumer latches on a change.
+ *   2. the BODY (hull-ground) contact (B+4 bit 0, type B+0x144 = the smallest raw material of the hull contacts,
+ *      strength B+0x19c = jn − 100 when the §2.9 normal impulse jn > 100, else 0), read live.
+ *   3. (car-car record +0x3c: no opponents in rally-web.)
+ * The +100 types in the sound table (100..122) are not produced by any writer found in the exe.
+ * `bush` mirrors record +0x28, set by the object pass (0x4a86b8) while the car centre lies within 2 m of a soft
+ * object's origin and inside its box (hasCollision without a collision mesh, 0 < collisionElasticConstant < 1: the
+ * bushes; the same pass sets the one-shot drag factor P+0x2c = collisionElasticConstant, MECHANICS_SPEC §2.7).
+ */
+export interface CollisionTelemetry {
+  /** Hull-ground contact this step (= bodyOnGround; body flag bit 0). */
+  hull: boolean;
+  /** Raw original material byte of the latest hull contact (B+0x144; 0..22 ground, > 23 solids). 0 before any. */
+  hullMaterial: number;
+  /** B+0x19c of the latest body-solver run: jn − 100 N·s for a normal impulse jn > 100, else 0. */
+  hullStrength: number;
+  /** Object hits since the CarSim was constructed (every substep in which the object pass finds contacts with an object
+   *  counts one per object, as the original sets the record each time; on worlds without object meshes every
+   *  obstacle-cylinder impulse; a consumer latches on a change). */
+  objectHits: number;
+  /** Type (raw collisionMaterial, −1 = none) and strength (impulse − 100, ≥ 0) of the latest object hit. */
+  objectType: number;
+  objectStrength: number;
+  /** Inside a bush this step (record +0x28). Mesh worlds with soft objects only (WorldQuery.softNear). */
+  bush: boolean;
+}
+
+/**
+ * Backfire / blow-out flags of the latest car update (research/formats/sound.md §4.3: car +0x84 / +0x8c, set by
+ * 0x753410 / 0x753550 from the car update FUN_0074fee0). ONE source per car (src/game/carFlags.ts, run once per
+ * rendered frame by main.ts) feeds both the pipe sounds (FrameContext.carFlags) and the pipe flames
+ * (CarRenderState.carFlags), so a bang and its flame fire on the same frame.
+ */
+export interface CarFlags {
+  backfire: boolean;
+  blowOut: boolean;
 }
 
 /**
@@ -713,6 +902,8 @@ export interface CarTelemetry {
    *  FrameContext.impactImpulseMax (max over the frame's substeps) so a crash on an intermediate substep
    *  is not missed. Resting chassis contact ≈ 200 N·s per step; real crashes are > 5000 N·s. */
   impactImpulse: number;
+  /** The original's collision record of this car (impact / bush sounds, see CollisionTelemetry). */
+  collision: CollisionTelemetry;
   /** NaN / explosion guard trips since the CarSim was constructed (state rolled back and velocities
    *  zeroed, §2 robustness). 0 normally. */
   simFaults: number;
@@ -766,6 +957,13 @@ export interface ICarSim {
   setParked(parked: boolean): void;
   /** Frozen cars skip step() entirely (§1.5). */
   setFrozen(frozen: boolean): void;
+  /**
+   * The original's post-finish track braking (phys+0x44, set by the player state machine FUN_004b3790 state 4 when
+   * the race is over; MECHANICS_SPEC §2.7): a speed-proportional drag scaled by `factor` = the stage's
+   * Physics.bodyBrakingFactorForTrack (Play.con: 0.4, hillclimb-3c-f 0.1). 0 switches it off; reset() clears it.
+   * Optional: a car without it simply keeps rolling (the race controller calls it at the finish).
+   */
+  setTrackBraking?(factor: number): void;
 }
 
 // =====================================================================================================
@@ -887,6 +1085,13 @@ export interface Pacenote {
   /** 1..6, 6 = fastest/easiest bend, 1 = hairpin; 0 = not a bend (straight / hazard-only note). */
   severity: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   modifiers: PacenoteModifier[];
+  /**
+   * The original co-driver word ids of this note in playback order (research/formats/sound.md §10: stage
+   * `Pacenotes.con` `race.addPaceNote <kind> w1 … w8 <distance>`, −1 entries dropped; ids 1..41 → the
+   * `Sound_PaceNotes.con` samples). Present only when the note comes from the original data. The audio
+   * builder plays these samples and falls back to the synthesized voice on `text` when absent / unloaded.
+   */
+  origWords?: number[];
 }
 
 /** Lighting / atmosphere preset (THREE space directions; colours 0xRRGGBB). */
@@ -992,7 +1197,8 @@ export interface Stage {
   readonly checkpoints: number[];
   /** Finish line s (closed: the lap line, usually = startS). */
   readonly finishS: number;
-  /** §5.4 auto-reset: s outside [min, max] counts as off-stage (point-to-point; closed: [0, length]). */
+  /** §5.4 auto-reset: s outside [min, max] counts as off-stage (point-to-point; closed: [0, length]). The minimum
+   *  may lie past startS (a ported archive's splineRange verbatim) as long as the spawn pose is inside the range. */
   readonly validRange: [number, number];
 
   readonly environment: EnvironmentPreset;
@@ -1093,8 +1299,10 @@ export interface IRaceController {
   readonly state: RaceState;
   /** Bind a freshly built stage and car; place the car at the start (car.reset with settle), set parked.
    *  countdown=true → 'intro'/'countdown' then 'running'; false → stays 'idle' until startNow().
-   *  `world` (optional, the stage's WorldQuery): spawn / reset heights use world.heightAt when given. */
-  begin(stage: Stage, car: ICarSim, opts: { countdown: boolean; world?: WorldQuery }): void;
+   *  `world` (optional, the stage's WorldQuery): spawn / reset heights use world.heightAt when given.
+   *  `origCar` (optional, RaceSelection.car): best times / the ghost are keyed by it when present (else by the
+   *  archetype), and the ghost's CarRenderState carries it. */
+  begin(stage: Stage, car: ICarSim, opts: { countdown: boolean; world?: WorldQuery; origCar?: string }): void;
   /** Skip menu/intro/countdown: phase → 'running' now, clock 0, car unparked. */
   startNow(): void;
   /** Whether player inputs should reach the car this substep (§5.1 "not controllable" otherwise). */
@@ -1176,6 +1384,11 @@ export interface AddCarOptions {
   player?: boolean;
   /** Livery index (original liveries). */
   livery?: number;
+  /** Original car name (RaceSelection.car, = `manifest.cars` key / `cars/<Name>` folder, e.g. 'AudiS1'):
+   *  the renderer shows that car's original mesh + livery (loadOriginalCar); the procedural archetype visual
+   *  is hidden while it loads and shows only when absent / not built / failed. The player car also brings its
+   *  own camera positions (Templates.con <Car>CarCamera, MECHANICS_SPEC §5.3). */
+  origCar?: string;
 }
 
 /**
@@ -1185,6 +1398,8 @@ export interface AddCarOptions {
 export interface CarRenderState {
   id: string;
   archetype: ArchetypeId;
+  /** Original car name of this car (same value as AddCarOptions.origCar), absent = archetype car. */
+  origCar?: string;
   ghost: boolean;
   player: boolean;
   /** Interpolated THREE-space body origin and orientation. */
@@ -1194,6 +1409,9 @@ export interface CarRenderState {
   telemetry: Readonly<CarTelemetry>;
   /** True on the first frame after a reset/teleport (camera snaps behind the car, §5.3 justReset). */
   justReset: boolean;
+  /** This frame's backfire / blow-out flags of the car (the shared source, CarFlags; absent = the effects derive
+   *  their own, e.g. the ghost). */
+  carFlags?: Readonly<CarFlags>;
 }
 
 export interface RenderStats {
@@ -1213,7 +1431,9 @@ export interface IGameRenderer {
   readonly cameraTuning: CameraTuning;
   /** Build all stage meshes (replaces the previous stage). */
   loadStage(stage: Stage): void | Promise<void>;
-  addCar(id: string, archetype: ArchetypeId, opts?: AddCarOptions): void;
+  /** Add a car; a promise settles (never rejects) once its final visual is in place (the original car loaded, or
+   *  the procedural fallback decided). main.ts awaits it with the stage load: no stand-in is ever shown. */
+  addCar(id: string, archetype: ArchetypeId, opts?: AddCarOptions): void | Promise<void>;
   removeCar(id: string): void;
   /** Render one frame. `alpha` = physics interpolation fraction (cars are already interpolated). */
   update(frameDt: number, alpha: number, cars: readonly CarRenderState[]): void;
@@ -1267,6 +1487,12 @@ export interface FrameContext {
   impactImpulseMax: number;
   /** Audio on/off (M key / menu). */
   audioEnabled: boolean;
+  /** Original car name of the player car (RaceSelection.car; absent = archetype car): the audio engine's
+   *  per-car engine / turbo patches (research/formats/sound.md). main.ts sets it from the selection. */
+  origCar?: string;
+  /** The player car's backfire / blow-out flags of this frame (the shared source, CarFlags; the same object the
+   *  renderer gets in CarRenderState.carFlags). Absent = consumers derive their own. */
+  carFlags?: Readonly<CarFlags>;
 }
 
 /** HUD (src/ui/hud.ts `Hud`, `new Hud(root: HTMLElement)`): speed/rpm/gear/boost gauge, clock, progress bar
@@ -1280,7 +1506,15 @@ export interface IHud {
 /** What the player picked in the menu. */
 export interface RaceSelection {
   stageId: string;
+  /** Handling archetype (the physics layer; for an original car: its drive type's archetype). */
   archetype: ArchetypeId;
+  /**
+   * Original car name = the `cars/<Name>` folder of the asset manifest (`manifest.cars` key) = `archive` in
+   * src/sim/origCars.ts = one of constants.ts ORIG_CAR_IDS (29 names, e.g. 'AudiS1', 'ImprezaWRX').
+   * Absent = the procedural archetype car. With it: the car's handling preset (src/sim/presets.ts), mesh +
+   * livery (renderer, AddCarOptions.origCar), engine sounds (FrameContext.origCar), best times / ghost keyed by it.
+   */
+  car?: string;
   tyre: TyreType;
   transmission: Transmission;
   /** Setup options (§5.5) as multipliers + steering choice. */
@@ -1298,10 +1532,26 @@ export interface ArchetypeInfo {
   colors: { body: number; accent: number; stripe: number };
 }
 
+/** One original car for the menu's car list (IMenuHost.listCars). */
+export interface CarListEntry {
+  /** Original car name (RaceSelection.car value, ORIG_CAR_IDS entry, e.g. 'AudiS1'). */
+  id: string;
+  /** Display name (the original's LocaleEnglish car name when the assets are built, else `id`). */
+  name: string;
+  /** Fallback visual / handling class (RaceSelection.archetype for this car). */
+  archetype: ArchetypeId;
+  drive: 'AWD' | 'FWD' | 'RWD';
+  /** The car's asset pack is built (manifest.cars lists it): the original mesh / livery will show. */
+  available: boolean;
+}
+
 /** Implemented by main.ts (App). Used by the menu. */
 export interface IMenuHost {
   listStages(): StageListEntry[];
   listArchetypes(): ArchetypeInfo[];
+  /** The original cars (all 29, ORIG_CAR_IDS order or the original's menu order). Optional until the cars
+   *  builder implements it; the menu falls back to listArchetypes(). */
+  listCars?(): CarListEntry[];
   /** Load the selection and start (with countdown). */
   startRace(sel: RaceSelection): Promise<void>;
   /** Restart the current stage with the same selection. */
@@ -1410,8 +1660,10 @@ export interface ITelemetryOverlay {
 export interface LaunchOptions {
   /** ?stage= stage id (default: first listed stage). */
   stage: string | null;
-  /** ?car= archetype id. */
+  /** ?car= archetype id (for ?car=<original car name>: that car's archetype). */
   car: ArchetypeId;
+  /** ?car=<original car name> (an ORIG_CAR_IDS entry, e.g. AudiS1) → RaceSelection.car; null / absent = none. */
+  origCar?: string | null;
   /** ?tyre= 0..4 or tyre name; null = stage default. */
   tyre: TyreType | null;
   /** ?seed= number. */
@@ -1452,6 +1704,8 @@ export interface StageInfo extends StageListEntry {
 
 export interface LoadStageOptions {
   car?: ArchetypeId;
+  /** Original car name (RaceSelection.car); its archetype replaces `car`. */
+  origCar?: string;
   tyre?: TyreType;
   seed?: number;
   transmission?: Transmission;
@@ -1476,6 +1730,18 @@ export interface ProbeInfo {
   /** Horizontal angle between the car's forward axis and the road tangent at s, degrees (0..180). */
   headingErrDeg: number;
   speedKmh: number;
+}
+
+/** window.__rally.getCarInfo(): which car the player drives (agent / tool checks). */
+export interface CarInfo {
+  /** Handling archetype of the live parameters. */
+  archetype: ArchetypeId;
+  /** Original car of the selection (RaceSelection.car), null = the archetype car. */
+  origCar: string | null;
+  /** Original car whose Car_<Name>.col hull the chassis probes use (§2.9), null = the archetype's §3.4 box. */
+  hullCar: string | null;
+  /** The co-driver voice setting (src/ui/settings.ts uiSettings.voice). */
+  voice: boolean;
 }
 
 export interface FrameStats {
@@ -1525,4 +1791,9 @@ export interface RallyTestApi {
   getFrameStats(): FrameStats;
   /** Car vs ground / road (clearance, heading error, upside down) for headless health checks. */
   probe(): ProbeInfo;
+  /** The player car: archetype, original car and the hull in use (CarInfo). */
+  getCarInfo(): CarInfo;
+  /** The race events (RaceEvent: countdown, go, checkpoint, finish, reset with its reason, pacenote, ...) since the
+   *  last call, oldest first; main.ts keeps at most the latest 1000 between calls. */
+  getRaceEvents(): RaceEvent[];
 }

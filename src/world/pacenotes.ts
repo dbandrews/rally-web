@@ -21,7 +21,14 @@ export interface PacenoteHazard {
   kind: 'crest' | 'jump' | 'water' | 'narrows' | 'caution';
 }
 
-/** Lateral grip (g) a fast driver uses per road surface for the approach-speed profile (≈ 75 % of §7 T4). */
+/**
+ * Lateral grip (g) a fast driver uses per road surface for the approach-speed profile (≈ 75 % of §7 T4).
+ * Appended original materials: the family's value × T4(surface) / T4(family) (tests/sim/harness.ts t4Lateral,
+ * awd_wrc, matched tyre, best of 60 / 100 km/h: tarmac 2.76, gravel 1.90, mud 1.45, snow 1.43, sand 1.51;
+ * asphaltGrass 1.98, leaf 1.90, gravelGrass 1.54, mudGrass 1.47, snowChunky 1.41, snowAsphalt = snow,
+ * sandDark 1.51; wood 1.60 has no measurable family → 0.75 × T4). DEEP verges that cannot reach 60 km/h
+ * (snowDeep, snowDitch, mudDitch, sandDeep, sandDarkDeep): family × gravelDeep / gravel (1.2 / 1.45).
+ */
 export const NOTE_GRIP_G: Readonly<Record<SurfaceId, number>> = Object.freeze({
   tarmac: 1.95,
   cobbles: 1.6,
@@ -33,6 +40,19 @@ export const NOTE_GRIP_G: Readonly<Record<SurfaceId, number>> = Object.freeze({
   grass: 1.0,
   snow: 1.1,
   ice: 1.05,
+  wood: 1.2,
+  snowChunky: 1.1,
+  snowDeep: 0.9,
+  snowAsphalt: 1.1,
+  snowDitch: 0.9,
+  leaf: 1.35,
+  asphaltGrass: 1.4,
+  gravelGrass: 1.2,
+  mudGrass: 1.15,
+  mudDitch: 0.95,
+  sandDeep: 1.0,
+  sandDark: 1.2,
+  sandDarkDeep: 1.0,
 });
 /** Warning time a call gets at the expected approach speed (s), and its bounds (m). */
 export const NOTE_LEAD_S = 2.5;

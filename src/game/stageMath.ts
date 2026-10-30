@@ -46,11 +46,12 @@ export function heightfieldAt(hf: Heightfield, x: number, z: number): number {
 
 /**
  * Make sure a SIM-space spawn pose is at least `raise` above the stage ground (terrain heightfield) at its
- * position, so lateral spawns never start underground. Mutates and returns the pose.
+ * position, so lateral spawns never start underground. Mutates and returns the pose. The ground level is
+ * the one at the pose's own height (WorldQuery yHint): under an overpass the road below, not the deck.
  */
 export function liftAboveGround(stage: Stage, pose: SimPose, raise: number, world?: WorldQuery | null): SimPose {
   // the WorldQuery (road ribbon + terrain, sim space) is exact; the bilinear heightfield is the fallback
-  const g = world ? world.heightAt(pose.pos.x, pose.pos.z) : heightfieldAt(stage.heightfield, pose.pos.x, -pose.pos.z); // sim z = -three z
+  const g = world ? world.heightAt(pose.pos.x, pose.pos.z, pose.pos.y) : heightfieldAt(stage.heightfield, pose.pos.x, -pose.pos.z); // sim z = -three z
   if (Number.isFinite(g)) pose.pos.y = Math.max(pose.pos.y, g + raise);
   return pose;
 }

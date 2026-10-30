@@ -1,6 +1,10 @@
 # rally-web: Driving Mechanics Specification
 
-Status: authoritative v1.4 (independently verified; corrections listed in Appendix C; v1.4 = RUNTIME-verified
+Status: authoritative v1.5 (independently verified; corrections listed in Appendix C; v1.5 = the original's ground
+interface: wheel and hull SEGMENT queries on the original collision mesh, the suspension reads the ray's compression
+FRACTION (§2.5.3, the body rides ≈ 2.5 cm higher than v1.4), the chassis hull and body solver FUN_006d0970 ported
+literally (§2.9, DEV-4 withdrawn), the post-finish track braking (§2.7), all proven against the executed exe and the
+Frida traces on Track.gcm; v1.4 = RUNTIME-verified
 against the running original with a Frida trace: one suspension fix (§2.5.2/§2.5.3), everything else matches to float
 precision; v1.2 = playtest-review
 fixes: defined power-test start states, DEV-9, re-derived §7 bands; v1.3 = drift-fidelity audit: the original's
@@ -11,10 +15,6 @@ Target: TypeScript + Three.js, fixed-step simulation.
 
 This document specifies the car handling, input, gearbox, camera and reset mechanics for rally-web, an
 original browser rally game whose driving must feel accurate to the original mechanics. 
-
-It was synthesised from a reverse-engineering study of the original's
-executable and its shipped handling configuration text. It contains mechanics only: numbers, equations and
-control flow. No original meshes, textures, audio, track data, menu art or text are used or needed.
 
 An engineer should be able to implement everything below without reading any other document.
 
@@ -60,7 +60,7 @@ one-step-lagged load transfer, independent of the springs. In the air, gravity (
 | DEV-1 | The "big slip angle" grip bonus (§2.6, step W10) uses `abs(beta) > 0.75` instead of the original's signed `beta > 0.75`. | Original applies it to right-hand drifts only [V asm 0x6cbb55]; almost certainly a bug. | `assist.bigBetaSymmetric = true` |
 | DEV-2 | **Withdrawn in v1.1.** (Was: floor the yaw-torque cap at 0.) | The cap cannot go negative: β uses `atan`, not `atan2` [V fpatan(x, 1) at 0x6cb041], so \|β\| < π/2 and the cap is always ≥ 0.179·TWMaxMom·Iyy (§2.8). A reversing car reads β ≈ 0. | none |
 | DEV-3 | TWStaMy yaw-friction sign uses a smooth sign with a 0.05 rad/s band instead of a hard `L_y >= 0 ? -1 : +1`. | The hard sign flips the yaw rate by 4·TWStaMy·μ·dt ≈ 0.033 rad/s every step on tarmac when driving straight (±0.017 rad/s about zero; invisible in heading) [M]. | `assist.smoothYawFrictionSign = false` (OFF by default: keep original; enable only if jitter is visible) |
-| DEV-4 | Body-to-ground (chassis) collision is our own impulse model (§2.9). | The original's FUN_006d0970 was not decoded. | n/a |
+| DEV-4 | **Withdrawn in v1.5.** (Was: body-to-ground collision by our own impulse model.) | The original's hull probes (FUN_006cea90 tail) and body solver FUN_006d0970 are ported literally and proven (§2.9). | none |
 | DEV-5 | Physical damage is off by default (§5.6). | Reviews report damage as cosmetic; original's damage source was not found. | `damage.physical = false` |
 | DEV-6 | The sleep rule's pedal test uses `S.thr > throttleMinLimit \|\| S.brk > brakeMinLimit` instead of "any non-zero pedal" (§2.10). | Sleep is the only thing that brings a car to rest, and any non-zero pedal disables it [V]. A tiny pedal value at standstill leaves the car creeping (\|v\| up to 0.26 m/s) [M]. | `assist.sleepPedalThreshold = false` (OFF: original; the [D] analog pedal dead zone in §5.1 normally suffices) |
 | DEV-7 | The sleep rule's `hardSpring` threshold becomes `max(4500, 1.25 × static per-wheel spring force)` (§2.10). | With the original's fixed 4500 N, cars heavier than about 1440 kg (shipped springs, awd geometry) never sleep and jitter at standstill [V threshold, M effect]. | `assist.heavyCarSleep = false` (OFF: original) |
@@ -193,7 +193,8 @@ interface Wheel {
   Fsusp: number;      // N, along the contact normal                                       [V W+0x40]
   mu: number;         // friction coefficient used this step
   contact: boolean; surface: number;  // material id, -1 if no contact
-  hitDist: number;    // ray hit distance from mount (m)
+  hitDist: number;    // ray hit distance from mount (m) = t·SL
+  c0: number; c4: number; // the ray's depth = dot(end − v0, n) (≤ 0) and cos = dot(n, ray) = −SL·(n·up); miss 0 / 1  [V W+0xc0/+0xc4]
   normalW: V3;        // world contact normal
   contactW: V3;       // world contact point (written at end of the wheel loop)
   steerOffX: number; steerOffZ: number; // kingpin offset of the contact point (front only)
@@ -218,7 +219,7 @@ interface CarState {
   nContacts: number;
   parked: boolean;           // pre-start hold; clutch open + all wheels braked           [V phys+0x74]
   steerSensFast: boolean;    // selects StaticSlipAngleFast (true, default) or Slow       [V phys+0x46, ctor 0x6c4655 = 1]
-  stepParity: number;        // toggles each step; chassis collision runs on alternate steps
+  stepParity: number;        // toggles each step (phys+0x90); the hull probes / body solver use it with carIndex >> 1
 }
 
 interface Controls {          // written by the input filter (§5.1) each substep            [V phys+0x60..0x70]
@@ -244,13 +245,13 @@ step(dt):
      B1 speed factor s, slip-ratio threshold
      B2 integrate pose with last step's velocities; rebuild axes; vL
      B3 body slip angle beta
-     B4 wheel raycasts (+ hull probes)                           (§2.5.1)
+     B4 wheel segments + hull probes                             (§2.5.1, §2.9)
      B5 suspension -> Fsusp, ext, nContacts                      (§2.5.3)
      B6 tyre normal loads                                        (§2.5.5)
      B7 per-wheel loop: spin, kinematics, slip, mu, tyre force, assists, accumulate (§2.6)
      B8 throttle ramp; body friction damping                    (§2.7)
      B9 anti-roll torque                                         (§2.7)
-     B10 chassis-ground collision (every other step)            (§2.9)
+     B10 body solver (car's turn, or a hull hit in the last 5 steps) (§2.9)
      B11 yaw torque and yaw momentum caps (if >= 2 contacts)    (§2.8)
      B12 air gravity multiplier                                  (§2.10)
      B13 integrate velocities and angular momentum; free-flight damping; sleep (§2.10)
@@ -615,18 +616,36 @@ const beta = B.vL.z === 0 ? 0 : Math.atan(-B.vL.x / B.vL.z);   // body slip angl
 S.stepParity ^= 1;
 ```
 
-#### 2.5.1 Wheel raycasts [V FUN_006cea90; hit semantics I]
+#### 2.5.1 Wheel rays [V FUN_006cea90; R v1.4/v1.5]
+
+The ground query is the original's SEGMENT test (research/formats/gcm.md §3.2-3.4; `WorldQuery.segment`): `ray` is
+the full segment vector, the test is one-sided (the start strictly above the face plane, the end on or below it,
+`dot(ray, n) < 0`), the FIRST face in the original traversal order wins, and each wheel / hull point keeps a face
+cache under its slot. A hit returns `depth = dot(end − v0, n)` (≤ 0, metres the segment END lies below the face) and
+`cos = dot(n, ray)` (the ray NOT normalised: −SL·cosθ for a wheel).
 
 ```ts
-for (const w of W) {
+let nWheel = 0;
+for (const [i, w] of W.entries()) {
   const start = add(B.pos, toWorld(w.mount));
-  const dir = scale(B.up, -1);                  // straight down the BODY axis (not world down)
-  const hit = terrain.raycast(start, dir, p.springLength);   // returns {dist, normal, material} or null
-  if (!hit || hit.material >= 32) { w.contact = false; w.surface = -1; w.normalW = {x: 0, y: 1, z: 0}; }
-  else { w.contact = true; w.surface = hit.material; w.hitDist = hit.dist; w.normalW = hit.normal; }
+  const ray = scale(B.up, -p.springLength);     // straight down the BODY axis (not world down), full length
+  w.rayEnd = add(start, ray);                   // W+0x94: the bump pattern samples this point (§2.5.2)
+  const hit = terrain.segment(start, ray, i + 24 * carIndex);   // slot = wheel + 24·car (car+0xa4)
+  if (!hit || (hit.origMaterial >>> 0) >= 0x20) {              // (unsigned) material >= 32: no contact
+    w.contact = false; w.surface = -1; w.normalW = {x: 0, y: 1, z: 0}; w.c0 = 0; w.c4 = 1;
+  } else {
+    w.contact = true; w.surface = hit.material; w.hitDist = hit.dist; w.normalW = hit.normal;
+    w.c0 = hit.depth;                           // W+0xc0
+    w.c4 = hit.cos;                             // W+0xc4 = −SL·(n·up)
+    nWheel++;
+  }
 }
-// hull probes for §2.9: all 12 points if fewer than 3 wheels touch, else 8 points, on this car's parity step
+// then the hull probes of §2.9 (12 points if nWheel < 3, else 8; scheduling there)
 ```
+rally-web numbering: `hit.material` is the rally-web material (`materialFromOrig(byte)`, §4.3), `hit.origMaterial` the
+raw gcm byte. [R] On the original Track.gcm (rallycross1, built collision part) the sim's own wheel segments
+reproduce every recorded wheel ray of the Frida traces: 282,228 wheel-steps of run 2, 1 contact mismatch, material
+100 %, |Δc0| ≤ 8.1e-5 m, |Δc4| ≤ 7.7e-4 (Appendix C v1.5).
 
 #### 2.5.2 Surface sink and bump [V FUN_006cf860]
 
@@ -648,21 +667,20 @@ function surfaceSink(w: Wheel): number {
 ```
 (A second pattern with 0.8 m cells applies when the hull touches a special material 0x23 [V]; not needed.)
 
-#### 2.5.3 Suspension [V FUN_006cf620]
+#### 2.5.3 Suspension [V FUN_006cf620; R v1.5]
 
 ```ts
 let n = 0;
 for (const w of W) {
   if (!w.contact) { w.dampV = 0; w.ext = 1.0; w.Fsusp = 0; continue; }
   n++;
-  const comp = p.springLength - w.hitDist;                         // [R] v1.4, see note below
-  const cosT = Math.max(0.05, dot(B.up, w.normalW));
-  const x = clamp(1 - (comp - surfaceSink(w) / (p.springLength * cosT)) / p.springLength, 0, 1);  // sink LOWERS the car
+  const x = clamp(1 - (surfaceSink(w) + w.c0) / (w.c4 * p.springLength), 0, 1);   // [V, R] the ray's c0 / c4
+  // = 1 − (SL − hitDist)/SL² + sink/(SL²·cosθ): c0/c4 = (SL − hitDist)/SL is the compression FRACTION; sink LOWERS the car
   const xPrev = w.ext === 1.0 ? x : w.ext;                         // no damper spike on first contact
   w.ext = x;
   const e = 1 - (xPrev + x) / 2;                                   // mean compression fraction
   const k = setup.suspension;                                      // 1.0; menu 0.7/1.0/1.3 (§5.5)
-  const dx = clamp((xPrev - x) * p.springLength, -0.5, 0.5);       // compression this step, m
+  const dx = clamp((xPrev - x) * p.springLength, -0.5, 0.5);       // compression this step (in units of SL·x)
   const vOld = w.dampV, vNew = (2 / dt) * (dx - dt * vOld) + vOld; // trapezoid: (vNew+vOld)/2 = dx/dt
   w.dampV = vNew;
   const Fd = Math.min(60000, 0.5 * (vNew + vOld) * (1 + e) * k * p.dampK);
@@ -675,15 +693,29 @@ for (const w of W) {
 S.nContacts = n;
 ```
 `Fsusp` is applied along the contact normal at the contact point in the wheel loop (§2.6 W4). It is never used
-as the tyre load. With shipped values the static compression is about 0.13 × 0.75 m ≈ 0.10 m.
+as the tyre load. With shipped values the static compression fraction is about 0.13, i.e. (1 − x)·SL² ≈ 0.074 m
+of geometric compression (0.75 m springs): per metre of travel the spring and damper act 1/SL = 1.33× stiffer than
+the fraction suggests. The wheel loop places the contact point at `mount − up·SL·x` (C+0x24), which therefore sits
+≈ 2-3 cm ABOVE the hit face, 0.42 m below the CG on the awd car (the §7 reference depth).
 
-RUNTIME-VERIFIED (v1.4, tag [R]: Frida trace of the running original, Appendix C): the original computes
-`x = 1 - (sink + W[+0xc0]) / (W[+0xc4]·SL)` where the ray callback writes `W[+0xc4] = -SL·(up·n)` and
-`W[+0xc0] = comp·W[+0xc4]` (0 and 1.0 on a miss). So `x = 1 - (comp - sink/(SL·cosθ))/SL`: the surface sink
-REDUCES compression (by ≈ 1.33·sink at SL 0.75), i.e. the wheel sinks into grass / mud / snow and the body rides
-LOWER. v1.0-1.3 had the sign reversed (`+ sink`, the body rode ≈ 2·sink higher). Replaying 5,400 + 40,000 recorded
-steps through the corrected sim gives extension errors ≤ 1.7e-4 (was up to 0.12). The rest of the suspension
-arithmetic is [V].
+v1.5 [R] (proof, `research/frida/susp_proof.py`, run 1 / run 2 of the Frida traces, rallycross1 Track.gcm):
+* the ray callback's outputs are geometric: on consecutive steps over the same face, Δc0 = 1.000000·dot(Δend, n)
+  (1,225 / 3,950 pairs, residual median 1e-6 m; a compression-in-metres reading would need the factor SL = 0.75), and
+  re-casting every recorded ray through the gcm port gives |t·SL − SL·(1 − c0/c4)| ≤ 3.7e-5 m;
+* the recorded extension C+4 equals `1 − (sink + c0)/(c4·SL)` to ≤ 8.9e-5 (median 1.5e-8) over 21,269 / 281,676
+  human wheel hits; the v1.4 formula `x = 1 − (comp − sink/(SL·cosθ))/SL` with comp = SL − hitDist in METRES misses
+  by median 0.036-0.038 (max 0.078). v1.4 could not see this because its replay fed a fake distance SL − c0/c4 that
+  turned the recorded fraction into metres;
+* closed loop: replaying the trace open-loop on planes through each hit face (2 s windows, the original's inputs
+  only), the end position error drops from median 25-27 mm (v1.4 formula; the car rides 2.5 cm too low) to 0.6-0.8 mm
+  (run 2: p99 5 mm over 549 windows); on the original Track.gcm itself (wheels and hull segments on the mesh) median
+  0.64 mm, p99 3.8 mm.
+
+Consequences [M]: every car rides ≈ 2.5 cm higher than v1.4 (awd_wrc CG 0.446 m, fwd_hatch 0.421, rwd_classic 0.508
+at the spring equilibrium on tarmac); wheel rate, damping and the anti-roll torque per metre of travel are 1.33×
+the v1.4 values; tyre loads are unchanged (they do not come from the springs, §2.5.5). The §7 handling bands hold
+(T13's crest load floor moved from 0.80 to 0.78 × static because the lower contact point gives ≈ 8 % more lagged
+load transfer).
 
 #### 2.5.4 Static front share (init) [V FUN_006c6810]
 
@@ -697,7 +729,8 @@ p.frontShare2 = 2 * Math.abs(W[3].mount.z) / (W[0].mount.z - W[3].mount.z);  // 
 ```ts
 function tyreLoads(n: number) {
   const Fup = dot(B.Fext, B.up);                  // gravity + aero along body up (negative); NOT x airMul
-  const nb = B.bodyOnGround ? p.bodyGroundShare /* [G] 0 */ : 0;
+  const nb = B.flags & 1 ? B.hullDir.y : 0;     // [V v1.5] the hull push direction's y (B+0x14c) while it touches
+  B.bodyShare = (n === 0 ? 1 : n === 1 ? 1 / (nb + 1) : 1 / (nb + 4)) * nb;   // B+0x140, read by the body solver
   const Tx = B.loadMoment.x, Tz = B.loadMoment.z; // from LAST step's tyre forces (one-step lag)
   const SX = [-1, +1, +1, -1], SZ = [+1, +1, -1, -1];
   const sameSide = [3, 2, 1, 0], sameAxle = [1, 0, 3, 2];
@@ -946,11 +979,21 @@ if (p.useBodyFrictionDamping) {
     }
     F = scale(vhat, (sumDiff / S.nContacts) * vmag * K * B.Fext.y);  // Fext.y < 0 -> opposes motion
   }
-  if (F) { Facc = add(Facc, F); const at = {x: 0, y: p.hullBottomY, z: 0}; Tacc = add(Tacc, cross(at, F)); }
+  if (F) { Facc = add(Facc, F); const at = {x: 0, y: (hull[0].y + hull[3].y) / 2, z: 0}; Tacc = add(Tacc, cross(at, F)); }
 }
-// Example: 4 wheels on deep gravel: decel = 1.3 x 0.00625 x 12 x |v| = 0.0975·|v| m/s² (2.2 m/s² at 80 km/h).
-// (Original also has two impulse drags with unknown triggers: phys+0x28 one-shot and phys+0x44 x
-//  bodyBrakingFactorForTrack (0.4). Omit; see §8.)
+// v1.5 [V 0x6cd7ec-0x6cdbff, R]: post-finish TRACK BRAKING, while phys+0x44 is set (the player state machine
+// FUN_004b3790 sets it in state 4, the race is over): the same shape at the same point,
+//   F = factor · (S.speedKmh / 240 · 0.125 + 0.15) · B.Fext.y · B.vL,   factor = Physics.bodyBrakingFactorForTrack
+// (Play.con: 0.4 on every stage, 0.1 on hillclimb3cf; CarPhysicsParamManager vtbl+0x3c). rally-web: CarSim.setTrackBraking(factor).
+// The race controller (src/game/race.ts finish) calls CarSim.setTrackBraking(stage.trackBraking) at the finish
+// (ICarSim.setTrackBraking, on the contract): the ported stage's Physics.bodyBrakingFactorForTrack (Play.con, the
+// stage data BODY_BRAKING); car.reset clears it; procedural stages carry no factor (no drag).
+// The one-shot drag of phys+0x28 (0x6cd3d9, same shape × phys+0x2c × 0.85, then cleared at 0x6cd7e8) is the BUSH drag
+// (finding 2026-10-30): phys+0x28 is the collision record's bush flag (car vt+0x178 = 0x5d9750 returns car+8 = phys), set
+// with phys+0x2c = the soft object's collisionElasticConstant (template+0x58, 0 < x < 1; the bushes ship 0.6) by the
+// object pass FUN_004a7bc0 (0x4a86b5 / 0x4a86b8) while the car centre is within 2 m of a bush and inside its box. The
+// flag is exported as CarTelemetry.collision.bush (the bush sound, sound.md §7); the drag itself is not ported yet.
+// Example (bogging): 4 wheels on deep gravel: decel = 1.3 x 0.00625 x 12 x |v| = 0.0975·|v| m/s² (2.2 m/s² at 80 km/h).
 
 // anti-roll: pure body roll torque per axle [V asm 0x6cdcd0-0x6cdd9b]
 const x = (i: number) => W[i].mount.x, SL = p.springLength;
@@ -976,44 +1019,130 @@ if (S.nContacts >= 2) {
 // yaw accel ≤ (1.75 - |beta|) x 5.70 rad/s² above 75 km/h.
 ```
 
-### 2.9 Chassis-ground collision [DEV-4, D]
+### 2.9 Chassis-ground collision [V FUN_006cea90 tail, FUN_006d0970; R v1.5]
 
-The original runs a hull-point penalty/impulse solver (FUN_006d0970) every other step per car, using
-surface columns BodyK, BodyKScale, Epsilon (§4) [V reads, I meaning]; it was not decoded. rally-web uses:
+v1.5: the original's chassis contact is ported literally (DEV-4 withdrawn). It has two halves: the HULL PROBES at the
+end of the wheel-ray function (B4, before the suspension), which reduce up to four hull contacts to ONE contact
+(point, push direction, depth, material), and the BODY SOLVER FUN_006d0970 (B10), which resolves that contact with
+a push-out, a normal impulse and an "anchor" friction impulse. The Ghidra pseudo-code of FUN_006d0970 is broken by
+x87 stack aliasing; the port follows the disassembly (0x6d0970-0x6d1a7b).
+
+Hull: the first `car_NColPoints` = 12 points of the car's `car_ColPointFile` (`Misc/object/Car_<Name>.col`, body frame,
+origin = COM; 0-3 bottom corners FL FR RR RL, 4-7 belt-line corners, 8-11 roof; §3.4). Car state: `mask` (phys+0x9c),
+`recent` / `quiet` (phys+0x94 / +0x98), `corner[4]` (phys+0xa8..0xb4, 1 = intact; the original raises a corner to 4
+outside the physics step, source not traced; rally-web keeps 1), parity (phys+0x90, §2.5.0), `carIndex` (phys+0xa4).
 
 ```ts
-// On steps where (S.stepParity === carIndex % 2) or a hull point already touched last step:
-for (const hp of hullPoints) {                     // 12 body-frame points (§3.4)
-  const P = add(B.pos, toWorld(hp));
-  const g = terrain.raycast(add(P, scale(B.up, 0.5)), scale(B.up, -1), 0.5);   // or a height query
-  if (!g) continue;
-  const depth = 0.5 - g.dist;                      // > 0 when penetrating
-  if (depth <= 0) continue;
-  B.bodyOnGround = true;
-  const sf = surfaceTable[g.material], n = g.normal;
-  const rW = sub(P, B.pos), vP = add(B.vW, cross(toWorld(B.w), rW));
-  const vn = dot(vP, n);
-  if (vn < 0) {                                    // remove approaching normal velocity
-    const e = 0.1 * sf.epsilon;                    // [G] restitution
-    const jn = -(1 + e) * vn / effMassInv(rW, n);  // standard rigid-body impulse denominator
-    applyImpulse(scale(n, jn), rW);
-    const vt = sub(vP, scale(n, vn)), vtl = len(vt);
-    if (vtl > 1e-4) {                              // Coulomb friction, mu_body = 0.5·BodyK [G]
-      const jt = Math.min(0.5 * sf.bodyK * jn, vtl / effMassInv(rW, normalize(vt)));
-      applyImpulse(scale(vt, -jt / vtl), rW);
+// ---- B4b hull probes (after the wheel rays; nWheel = wheels with contact) [V FUN_006cea90 0x6ceda6-0x6cf5f3]
+const turn = S.stepParity === carIndex >> 1;
+const nPts = nWheel < 3 ? 12 : 8;
+const belt = nWheel < 3 ? 0b1111 : corner.map((c, k) => (c >= 2 ? 1 << k : 0)).reduce((a, b) => a | b, 0);
+if (turn) mask = 0;
+let count = 0, nBottom = 0, nUpper = 0, minMat = 0x3f, sum = {x: 0, y: 0, z: 0}, sumD = 0, any = false, flags = 0;
+for (let i = 0; i < nPts; i++) {
+  if (i >= 4 && !turn && !(mask & (1 << i))) continue;          // 4-11 only on the car's turn or if they hit last time
+  if (i >= 4 && i < 8 && !(belt & (1 << (i - 4)))) continue;    // belt points: < 3 wheels, or a raised corner
+  const P = add(B.pos, toWorld(hull[i]));                       // this step's pose
+  const h = terrain.segment(B.prevPos, sub(P, B.prevPos), 8 + i + 24 * carIndex);  // FROM the previous step's COM (B+0xd8)
+  if (!h) continue;
+  mask |= 1 << i; any = true;
+  const mat = h.origMaterial;                                   // raw byte; 255 = the original's −1
+  if (mat === 255 || !(h.depth < 0.01) || count >= 4) continue; // (depth ≤ 0 on every hit)
+  if (mat > 23) flags |= 0x80;                                  // non-ground solid
+  minMat = Math.min(minMat, mat);
+  if (mat === 0x23) { flags |= 0x100; continue; }               // special material: flag only (never in a Track.gcm)
+  sum = add(sum, scale(h.normal, -h.depth)); sumD -= h.depth; idx[count] = i; dep[count] = h.depth; count++;
+  if (i < 4) nBottom++; else nUpper++;
+}
+if (any) { quiet = 0; recent = true; } else if (quiet > 4) recent = false; else { quiet++; recent = true; }
+B.bodyOnGround = false;                                         // CP+0x34
+if (count >= 1 && len(sum) !== 0) {
+  B.bodyOnGround = true; flags |= 1;
+  let c = {x: 0, y: 0, z: 0};
+  for (let k = 0; k < count; k++) c = add(c, scale(hull[idx[k]], -dep[k] / sumD));   // depth-weighted contact point
+  if (flags & 0x80 && c.y > 0) c.y *= 0.2;
+  B.hullPt = c;                                                 // B+0x160 (body frame)
+  B.hullDir = normalize(sum);                                   // B+0x148 (world)
+  B.hullDepth = -sumD / count;                                  // B+0x13c, mean depth (≤ 0)
+  B.hullMat = minMat;                                           // B+0x144
+  if (nUpper < nBottom) flags |= 0x40;
+}
+B.flags = flags;   // the original keeps its other B+4 bits (2..0x20: belt flags, 0x200); no physics reads them
+
+// ---- B10 body solver, on the car's turn or while `recent` [V FUN_006d0970; call site 0x6cde02]
+function bodySolver(dt) {
+  B.T += dt;                                                    // B+0x134 anchor timer
+  if (!(B.flags & 1)) return;
+  const sf = bodyColumns(B.hullMat);  // BodyK, BodyKScale, MaxDepth, Epsilon: §4.4 row; 23 = DUMMY row; > 23 → all 1.0
+  const c = B.hullPt, d = B.hullDepth; let n = {...B.hullDir};
+  const vP = add(B.vW, toWorld(cross(B.w, c)));                 // contact velocity with the LAGGED ω (B+0x44)
+  if (B.hullMat > 23 && n.y > 0) n.y = 0;                       // solids never push up
+  let k;                                                        // 1. push-out beyond the surface's MaxDepth
+  if (-d < sf.maxDepth) k = sf.maxDepth === 0 ? 0 : -d / sf.maxDepth;
+  else { B.pos = add(B.pos, scale(n, Math.min(0.5, -(sf.maxDepth + d)))); k = 1; }
+  const vn = Math.min(0, dot(vP, n) * sf.bodyKScale);           // 2. normal impulse
+  const nB = toLocal(n), X = mul(cross(c, nB), B.invI);         //    |(I⁻¹(c×n))×c · n| + 1/m
+  let jn = -sf.epsilon * vn * k / (Math.abs(dot(cross(X, c), nB)) + B.invMass);
+  let Jt = {x: 0, y: 0, z: 0};                                  // 3. anchor friction
+  if (B.T >= 0.2) B.T = 0;
+  else if (dot(n, B.prevN) > 0.8) {                             //    the contact continues the last one
+    const m = scale(add(c, B.prevC), 0.5);                      //    midpoint of this and the last contact (body)
+    const pPrev = add(B.prevPos, mulRows(m, B.prevR)), r = toWorld(m);
+    const D = sub(scale(sub(pPrev, add(r, B.pos)), 1 / (B.T + 0.001)), vP);   // velocity that returns it there
+    const cosRN = dot(normalize(r), n);
+    Jt = D;                                                     //    (the raw D, ≈ D/m: ≤ 1 mm/s; asm 0x6d11d9)
+    if (cosRN < -0.4 && dot(D, D) !== 0) {                      //    contact below the COM
+      const N = Math.max(0, -dot(n, B.Fext) * B.bodyShare);     //    the body's weight share along n (§2.5.5)
+      let sR = -dot(B.right, n); if (c.x < 0) sR = -sR; sR = Math.max(0, sR);
+      let tip = (1 - Math.abs(n.y)) * sR * sR * 26.640649795532227 * B.mass;   // side-tip term
+      if (Math.abs(B.vL.z) < 16) tip *= Math.abs(B.vL.z) / 64;
+      Jt = scale(normalize(D), -cosRN * (tip + N) * sf.bodyK * B.T);  // Coulomb, accumulated over T
+      B.T = 0;
+      if (B.hullMat >= 0x20 && Jt.y > 0) Jt.y = 0;
+      B.L = add(B.L, toLocal(cross(r, Jt)));
     }
   }
-  B.pos = add(B.pos, scale(n, depth * 0.5));       // positional correction, 50 %/step [G]
+  B.prevN = n; B.prevC = c; B.prevPos = B.pos; B.prevR = [B.right, B.up, B.fwd];   // B+0x154 / 0x16c / 0x114 / 0xe4
+  jn = Math.min(10000, Math.max(0, jn));                        // (impact = jn before the cap: effects / damage)
+  const Jn = scale(n, jn);
+  if (B.vW.y <= 0 || Jn.y <= 0) Jn.y = Math.min(Jn.y, 8000);
+  else if (B.flags & 0x80) Jn.y = Math.min(500, Jn.y * clamp((2 - B.vW.y) / 2, 0, 1));
+  B.L = add(B.L, cross(c, toLocal(Jn)));
+  B.vW = add(B.vW, scale(add(Jn, Jt), B.invMass));
 }
 ```
-Tune so that a car dropped on its roof from 1 m comes to rest within 1 s and slides on its roof with about
-0.4-0.6 g of deceleration on gravel.
+Not ported: the material-0x23 branch at the top of FUN_006d0970 (body flag 0x100: a speed-proportional drag and a
+splash point; no collision data produces 0x23) and the impact-effect outputs B+0x190..0x1d0 (spark / scrape trigger,
+contact type 0/1/2, contact points; the effects / audio side). Car-car and object contacts are handled outside the
+physics step in the original (FUN_004a7980, §8 #10). Static objects (ported 2026-10-30, `CarSim.objectPass`,
+docs/orig/collision.md §4): after each substep the object pass FUN_004a7bc0 gates each candidate (|origin − car| ≤
+0.2·radius + 1.5, render box against the car box), FUN_006d1a80 sends EVERY hull point's segment (previous COM →
+point) through the object's own CollisionMesh.Simple (query 0x597810), accumulates the contacts exactly as above
+(material = collisionMaterial when 0..22, else 1) and calls **FUN_006d21c0** = this solver with its own anchor timer
+B+0x138 (shared anchor memory) and the friction impulse clamped to ±1000 per component before vW [V executed:
+tests/sim/fixtures/bodySolverObjCases.json]. Worlds without object meshes (procedural, RCOL v1) keep the [D]
+obstacle cylinders. Car-car (FUN_006d4390) and the loose parts are not ported.
 
-v1.3 audit note [M]: these hull points touch flat tarmac during ≈ 100 km/h full-lock handbrake slides (body roll;
-`bodyOnGround` true for a few steps). This is the only place where the rally-web sim diverges from the spec-literal
-reference on the slide path, by |Δβ| < 1e-4 rad during contact (4.5e-4 rad later), Δv < 0.1 km/h, with the same
-end β (10.6°); nothing touches on gravel, snow or ice. It does not limit slide holding. Decoding FUN_006d0970
-stays open (§8 #1) but is low priority for handling feel.
+Verification (v1.5):
+* [V, executed] `research/frida/emu_body.py` RUNS the original FUN_006d0970 (x87, in unicorn over the exe image; the
+  surface getter stubbed with the PhysicsParam.con rows) on 3,000 random body states (all materials 0-63, push-out
+  and impulse regimes, anchor fired / expired / rejected, flags 0x40 / 0x80 / 0x200): rally-web's port agrees on every
+  written state to float32 (|ΔvW| ≤ 1.5e-5 relative, |ΔL| ≤ 1.5e-5 relative, |Δpos| ≤ 7.7e-6 m, anchor timer and
+  memory exact). 120 of the cases are a unit test (tests/sim/fixtures/bodySolverCases.json).
+* [R] On the original Track.gcm with the cars' own Car_<Name>.col hulls, the 6 recorded body-ground contact steps of
+  run 2 (AI cars Micra / Corolla on two wheels at 35 km/h, AI friction mode, §4.2): the hull accumulation (depth,
+  material, push direction, contact point) equals the original's exactly, and the whole step (probes, tyre loads with
+  `nb`, solver) reproduces the original's velocity change to |Δv| ≤ 2.7e-5 m/s of 0.17-0.22 m/s and the angular
+  momentum change to ≤ 0.03 of 9-257 N·m·s. The anchor-friction branch is covered only by the executed cases (the
+  recorded contacts had T ≥ 0.2).
+
+Behaviour [M]: on its roof (awd box hull, gravel) the car comes to rest at the roof height and keeps a period-2
+rock of |ω| ≈ 0.09 rad/s (the impulse uses the lagged ω; ≈ 0.04° per step, invisible); sliding on the roof it
+decelerates at ≈ 1.2 g on gravel (the anchor impulse BodyK·T·N every ≤ 0.2 s ≈ BodyK·12 m/s², plus the 2 m/s²
+free-flight damping, §2.10). v1.3's note that the hull touches flat tarmac in 100 km/h full-lock handbrake slides
+no longer applies: with the corrected ride height (+2.5 cm, §2.5.3) and the original's probe schedule (only the
+bottom corners while ≥ 3 wheels touch) no hull contact occurs in them (tarmac and gravel, all archetypes, 0 of
+≈ 1,000 steps each).
 
 ### 2.10 Air gravity multiplier, integration, free flight, sleep [V FUN_006caab0 tail]
 
@@ -1216,7 +1345,7 @@ collision-point files) are available as the non-default preset "orig: class-4 AW
 | `frontShare2` | 1.0435 | 1.0295 | 0.9714 | §2.5.4; front axle carries 52.2 / 51.5 / 48.6 % |
 | static tyre load F / R | 3850 / 3530 | 2965 / 2795 | 2945 / 3115 | N per wheel at 12 m/s² |
 | grip→slide angle F / R (Fast) | 12.9° / 5.9° | 10.0° / 4.7° | 9.9° / 5.2° | at static load |
-| CG height above ground at rest | ≈ 0.42 | ≈ 0.38 | ≈ 0.47 | m, = -(mount.y - 0.75·0.87) |
+| CG height above ground at rest | ≈ 0.446 | ≈ 0.421 | ≈ 0.508 | m, = SL − (1 − x)·SL² − mount.y with x ≈ 0.87 (v1.5, §2.5.3; v1.4: 0.42 / 0.38 / 0.47) |
 | auto upshift speeds | 40.4, 62.9, 87.3, 110.9, 139.5 | same | 39.6, 62.9, 89.0, 115.6 | km/h, `135.31 / ratio` |
 | speed at CutRPM per gear | 49.7, 77.5, 107.5, 136.6, 171.8, 198.4 | same | 48.7, 77.5, 109.6, 142.4, 222.2 | km/h, `166.6 / ratio` (not a hard cap) |
 | hull length (front / rear of origin) | +2.07 / -2.30 | +1.95 / -2.05 | +1.80 / -1.90 | m, §3.4 |
@@ -1231,12 +1360,18 @@ collision-point files) are available as the non-default preset "orig: class-4 AW
 * Coast downshift from gear g (> 2): speed < 0.95 · 0.775 · shiftSpeed[g-1] (the CURRENT gear's own upshift
   speed) and rpm < 4000; 2→1: < 0.75 · 0.775 · shiftSpeed[1] (62.9 km/h → 36.5 km/h) [V FUN_006c6c60].
 
-### 3.4 Body hull (collision points) [D, shape from the original's 12-point convention]
+### 3.4 Body hull (collision points) [V data v1.5; D for the archetypes]
 
-12 body-frame points per car (original: `car_NColPoints 12`, per-car point files [V]). Use a generic box:
-`(±0.85, -0.33, zf)`, `(±0.85, -0.33, zr)`, `(±0.85, 0.33, zf)`, `(±0.85, 0.33, zr)`, roof
-`(±0.50, 1.00, +0.12)`, `(±0.48, 1.00, -1.06)`, with zf / zr from §3.2. `hullBottomY = -0.33` (application
-point of body friction damping).
+The original cars use the first 12 points (`car_NColPoints 12`) of their `car_ColPointFile`
+(`Misc/object/Car_<Name>.col`, research/formats/gcm.md §6): 0-3 bottom corners FL FR RR RL, 4-7 belt-line corners,
+8-11 roof points, body frame with origin at the COM (e.g. Astra: x ±0.919, bottom y −0.326, belt y 0.25, roof
+y 0.917, z +2.053 / −1.972). rally-web ships them as `src/sim/origHulls.ts` (generated by
+`research/frida/port_hulls.py`, keyed by the ORIG_CAR_IDS name) and uses them when the CarSim is built with
+`origCar` (the RaceSelection.car). Procedural archetype cars keep the generic box in the same point order:
+`(±0.85, -0.33, zf)`, `(±0.85, -0.33, zr)` (FL FR RR RL order: −x front, +x front, +x rear, −x rear), the same four at
+`y = 0.33`, roof `(∓0.50, 1.00, +0.12)`, `(±0.48, 1.00, -1.06)`, with zf / zr from §3.2. The chassis drags act at
+`(0, (hull[0].y + hull[3].y)/2, 0)` (§2.7; `hullBottomY = -0.33` for the box). Points 12-17 of the .col files and
+their quads belong to car-car / object contacts (outside the step, not ported).
 
 ### 3.5 Input, camera and gameplay constants
 
@@ -1292,10 +1427,17 @@ jne; mov [esp+0xb4],0`), i.e. `FL = min(FL_surface, 0)`. So AI / non-local cars 
 everywhere (gravel tyres: 2.126 on asphalt, 1.9 elsewhere; ice tyres 1.6) and get no deep-surface rolling drag.
 The player car never uses this mode; it matters only when calibrating against the original's AI or ghost times.
 
-### 4.3 The ten rally-web surfaces
+### 4.3 The rally-web surfaces (23 = one per original material)
 
-rally-web surface ids map onto the original's material ids. Values: static μ / kinetic μ per tyre type, and
-the multiplier relative to tarmac-on-tarmac-tyres (μs 2.407).
+rally-web has **one surface per original material id 0..22** (v1.5 contract change; DUMMY 23 has none): the
+original ten keep rally-web material ids 0..9, the other 13 original materials were appended as ids 10..22
+(`src/core/constants.ts` SURFACE_IDS order: wood, snowChunky, snowDeep, snowAsphalt, snowDitch, leaf,
+asphaltGrass, gravelGrass, mudGrass, mudDitch, sandDeep, sandDark, sandDarkDeep). Every row is the
+PhysicsParam.con row verbatim (§4.4; contract test against the extracted file). **Numbering trap:** the
+rally-web material id is the SURFACE_IDS index, not the original byte (gcm 0 = GRASS, rally-web 0 = tarmac);
+raw gcm bytes go through `materialFromOrig` / `ORIG_MATERIAL_TO_MATERIAL` (23, 255 and every byte > 22 →
+MATERIAL_NONE). Values: static μ / kinetic μ per tyre type, and the multiplier relative to
+tarmac-on-tarmac-tyres (μs 2.407).
 
 | rally-web surface | orig. id | tarmac tyre | intermediate | gravel tyre | snow tyre | ice tyre |
 |---|---|---|---|---|---|---|
@@ -1309,6 +1451,19 @@ the multiplier relative to tarmac-on-tarmac-tyres (μs 2.407).
 | `sand` | 5 SAND | 0.899 / 0.719 (0.37) | 1.280 / 1.024 (0.53) | 1.449 / 1.159 (0.60) | 1.350 / 1.080 (0.56) | 1.350 / 1.080 (0.56) |
 | `cobbles` | 13 COBBLES | 1.750 / 1.400 (0.73) | same | same | same | same |
 | `water` (wet tarmac) | 3 WATERASPHALT | 1.895 / 1.622 (0.79) | 1.784 / 1.499 (0.74) | 1.674 / 1.339 (0.70) | 1.498 / 1.198 (0.62) | 1.410 / 1.128 (0.59) |
+| `wood` | 6 WOOD | 1.526 / 1.221 (0.63) | 1.600 / 1.280 (0.66) | 1.600 / 1.280 (0.66) | 1.600 / 1.280 (0.66) | 1.600 / 1.280 (0.66) |
+| `snowChunky` | 8 SNOWCHUNKY | 0.242 / 0.194 (0.10) | 0.339 / 0.272 (0.14) | 0.339 / 0.272 (0.14) | 1.310 / 1.048 (0.54) | 1.504 / 1.203 (0.62) |
+| `snowDeep` | 9 SNOWDEEP | 0.250 / 0.200 (0.10) | 0.350 / 0.280 (0.15) | 0.350 / 0.280 (0.15) | 1.350 / 1.080 (0.56) | 1.550 / 1.240 (0.64) |
+| `snowAsphalt` | 10 SNOWASPHALT | 0.339 / 0.272 (0.14) | 0.437 / 0.349 (0.18) | 0.437 / 0.349 (0.18) | 1.310 / 1.048 (0.54) | 1.407 / 1.125 (0.58) |
+| `snowDitch` | 11 SNOWDITCH | 0.250 / 0.200 (0.10) | 0.350 / 0.280 (0.15) | 0.350 / 0.280 (0.15) | 1.350 / 1.080 (0.56) | 1.550 / 1.240 (0.64) |
+| `leaf` | 14 LEAF | 1.750 / 1.400 (0.73) | 1.700 / 1.360 (0.71) | 1.600 / 1.280 (0.66) | 1.500 / 1.200 (0.62) | 1.400 / 1.120 (0.58) |
+| `asphaltGrass` | 15 ASPHALTGRASS | 1.825 / 1.460 (0.76) | 1.725 / 1.380 (0.72) | 1.700 / 1.360 (0.71) | 1.650 / 1.320 (0.69) | 1.625 / 1.300 (0.68) |
+| `gravelGrass` | 16 GRAVELGRASS | 1.400 / 1.120 (0.58) | 1.450 / 1.160 (0.60) | 1.500 / 1.200 (0.62) | 1.450 / 1.160 (0.60) | 1.400 / 1.120 (0.58) |
+| `mudGrass` | 17 MUDGRASS | 1.300 / 1.040 (0.54) | 1.350 / 1.080 (0.56) | 1.400 / 1.120 (0.58) | 1.350 / 1.080 (0.56) | 1.300 / 1.040 (0.54) |
+| `mudDitch` | 18 MUDDITCH | 1.450 / 1.160 (0.60) | 1.450 / 1.160 (0.60) | 1.450 / 1.160 (0.60) | 1.450 / 1.160 (0.60) | 1.450 / 1.160 (0.60) |
+| `sandDeep` | 19 SANDDEEP | 1.650 / 1.320 (0.69) | 1.650 / 1.320 (0.69) | 1.650 / 1.320 (0.69) | 1.650 / 1.320 (0.69) | 1.650 / 1.320 (0.69) |
+| `sandDark` | 21 SANDDARK | 0.899 / 0.719 (0.37) | 1.280 / 1.024 (0.53) | 1.449 / 1.159 (0.60) | 1.350 / 1.080 (0.56) | 1.350 / 1.080 (0.56) |
+| `sandDarkDeep` | 22 SANDDARKDEEP | 1.650 / 1.320 (0.69) | 1.650 / 1.320 (0.69) | 1.650 / 1.320 (0.69) | 1.650 / 1.320 (0.69) | 1.650 / 1.320 (0.69) |
 
 Other per-surface columns:
 
@@ -1324,18 +1479,43 @@ Other per-surface columns:
 | sand | no | 1.15 | 1.15 | 0 | 0.01 | 0 | 0.85 | 0.75 | 0.45 | 0.5 | 0.125 |
 | cobbles | no | 3.1 | 1.1 | 0 | 0.075 | 1 | 0.90 | 0.80 | 1.00 | 2.5 | 0.375 |
 | water | no | 1.0 | 1.0 | 0 | 0 | 0 | 0.90 | 0.90 | 1.00 | 0.125 | 0.03125 |
+| wood | no | 1 | 1 | 0 | 0.05 | 1 | 0.80 | 0.90 | 0.40 | 2.5 | 0.375 |
+| snowChunky | no | 2.002 | 1.2 | 0.02 | 0.01 | 0 | 0.72 | 0.50 | 0.30 | 0.25 | 0.0625 |
+| snowDeep | **yes** | 10.075 | 1.5 | 0.04 | 0.015 | 1 | 0.80 | 0.25 | 0.20 | 0.5 | 0.125 |
+| snowAsphalt | no | 1.2 | 1.2 | 0.02 | 0.005 | 0 | 0.72 | 0.50 | 0.30 | 0.25 | 0.0625 |
+| snowDitch | **yes** | 10.068 | 1.5 | 0.04 | 0.02 | 1 | 0.80 | 0.25 | 0.30 | 0.5 | 0.125 |
+| leaf | no | 1 | 1 | 0.02 | 0.02 | 1 | 0.45 | 0.90 | 0.35 | 0.125 | 0.03125 |
+| asphaltGrass | no | 1.116 | 1.2 | 0.01 | 0.015 | 0 | 0.72 | 0.80 | 0.40 | 0.125 | 0.03125 |
+| gravelGrass | no | 1.35 | 1.51 (2.51 on tyres 0, 4) | 0.02 | 0.017 | 0 | 0.70 | 0.80 | 0.40 | 1 | 0.25 |
+| mudGrass | no | 1.505 | 1.4 | 0.02 | 0.017 | 0 | 0.70 | 0.80 | 0.35 | 1 | 0.25 |
+| mudDitch | **yes** | 10.064 | 1.905 (20.905 on tyres 0, 4) | 0.04 | 0.02 | 1 | 0.65 | 0.25 | 0.40 | 1.25 | 0.275 |
+| sandDeep | **yes** | 5.024 | 1.5 | 0.04 | 0.01 | 1 | 0.90 | 0.25 | 0.55 | 1.25 | 0.1875 |
+| sandDark | no | 1.15 | 1.15 | 0.02 | 0.01 | 0 | 0.85 | 0.75 | 0.45 | 0.5 | 0.125 |
+| sandDarkDeep | **yes** | 5.024 | 1.5 | 0.04 | 0.01 | 1 | 0.90 | 0.75 | 0.25 | 1.25 | 0.1875 |
+
+v1.5 verification: the shipped table (`src/sim/params.ts` DEFAULT_SURFACE_TABLE, 23 rows) equals the extracted
+PhysicsParam.con in every column of every material (max |Δ| = 0; the Frida replay prints this check, and a contract
+test holds it); the replay runs on this table through `materialFromOrig`, so the traced materials (GRASS, ASPHALT,
+GRAVEL) behave as in the original to the one-step precision of Appendix C. The other 20 materials share the same
+code paths (μ §4.2, DEEP / bogging §2.6 W16 and §2.7, sink and washboard §2.5.2, body columns §2.9); their rows are
+data only. Differences: DUMMY (23) gives no wheel contact in rally-web (the original would touch it with the DUMMY
+row, `(unsigned)23 < 0x20`; no Track.gcm face uses it); the body solver answers 23 with the DUMMY row and > 23 with
+"all columns 1.0" exactly as the original's getter.
 
 Column notes:
 * **DEEP** [V]: lateral pure-slip force ×`sideFrictionFactor` (1.4) and body-friction "bogging" drag (§2.7).
   In the original the DEEP set is {grass, snow-deep, snow-ditch, gravel-deep, mud-ditch, sand-deep,
-  sand-dark-deep}; rally-web stores it as a per-surface boolean.
+  sand-dark-deep} (orig ids {0, 9, 11, 12, 18, 19, 22}, the FUN_006d0410 switch); rally-web stores it as a
+  per-surface boolean (`grass`, `snowDeep`, `snowDitch`, `gravelDeep`, `mudDitch`, `sandDeep`, `sandDarkDeep`).
 * **BestRollK** [V]: viscous rolling resistance per wheel, `ω · Fz/2048 · rollK` N·m. Deep gravel is 5×,
   cobbles 3×, deep snow and mud ditches 10× asphalt.
 * **MaxDepth / Bump / BumpFlag** [V]: suspension sink and 0.2 m washboard (§2.5.2).
 * **BodyK / BodyKScale / Epsilon** [V read, I meaning]: chassis contact (§2.9: friction, normal-velocity
   scaling, restitution).
-* **wheel jitter amp** [V FUN_006c8ef0]: visual wheel bounce `amp · speed(m/s) · 0.0002 · sin²(35·t)` m.
-* **camera roughness** [V FUN_0075e210]: summed over the 4 wheels for the bumper-cam shake (§5.3).
+* **wheel jitter amp** [V FUN_006c8ef0]: visual wheel bounce `amp · speed(m/s) · 0.0002 · sin²(35·t)` m
+  (switch on the orig id; an id outside the switch, e.g. DUMMY, gets 1.0).
+* **camera roughness** [V FUN_0075e210]: summed over the 4 wheels for the bumper-cam shake (§5.3)
+  (switch on the orig id; ids outside it add 0).
 
 #### 4.3.1 Which surface the original's stages actually use (v1.3) [V data, M effect]
 
@@ -1344,6 +1524,13 @@ u32 nFaces, then nFaces bytes). The ids are the exe's `c_MATERIAL_ROAD_*` enum (
 values 0..22, registered by the pushes at 0x743b3b-0x74467d), the same ids as §4.4. (`TrackFull.gcm` is used only
 with the console variable `fullCollision`, default 0, 0x40260e.) Face area within 3.5 m of each stage's AI centre
 spline (the road), forward stages [V, audit script `artifacts/audit/gcm_materials.py`]:
+
+> **Port status (post-v1.4):** the original stages themselves are now ported directly — all 48 track
+> archives build as rally-web stages with the real splines, timing and these surfaces
+> (`src/world/ports/` + `src/world/portedBuilder.ts`; ids like `corsica-1-f`). The right-hand column
+> below names the PROCEDURAL stand-ins that stay in the catalogue as the handling-lab class stages; the
+> ported stage families reproduce the per-stage material shares in this table. The full-fidelity target
+> (look identical too) is tracked in `PROGRESS.md`.
 
 | original stage group | race.tyretype | road material share | rally-web stage |
 |---|---|---|---|
@@ -1543,6 +1730,17 @@ facing backwards while held. **FOV fixed at 70°** (no speed FOV); only the flip
 | 8 | chase high | (0, 1.45, -5.00) | (0, 2.50, -7.00) | 11 / 0.75 |
 | 10 / 12 | tether | p = (0.125, 32) / (0.125, 8) | d = (4, 4.3, 4.2) / (5, 8.3, 8.2) | |
 
+**The table is ImprezaWRX's** (= the generic `makeCameraTuning()`, used for the archetype cars). Every original car
+carries its own table: `ObjectTemplate.create CarCamera <Car>CarCamera` in its Templates.con (25
+`setCamPosition i enabled flag posA posB param` lines, attached by Player.con `addTemplate <Car>CarCamera`), and each
+camera function reads its entry from the player car's template array [V: template +0x248, stride 0x30; FUN_0075e390
+entry 0 at +0x0c, FUN_0075e790 entry 1 at +0x3c, FUN_0075fda0 entry 6 at +0x12c..+0x14c, the tether at
++0x1ec..+0x200]; the literals in those functions (e.g. bumper (0, 0.456, 1.8575)) are only the no-template
+fallback. 20 of the 29 cars have their own bonnet, 15 their own bumper and 8 their own chase entries (e.g. FordFocus
+bonnet (0, 0.70, 1.05) / bumper (0, 0.45, 1.80); AudiS1 bonnet (0, 0.85, 0.70), chase y 1.3 → 1.4; Escudo chase
+y 1.3 → 1.5); the enabled flags, chase-high, tether and look-back entries are identical on all 29. The port ships
+them in `cars/<Name>/cars.json` `camera` and applies them for the player car (docs/orig/cars.md §2 "Cameras").
+
 **Chase camera** (entries 5-8), per rendered frame:
 ```ts
 const v = B.vL.z;                                         // forward speed m/s
@@ -1581,9 +1779,13 @@ FOV(deg) = `85.943665·atan(3.5/dist)`; clears once ≥ 3 wheels touch for 0.5 s
   |lateral offset| > **30 m**, or height relative to the spline < **-5 m**, or spline distance outside the
   stage's valid range.
 * **Sequence**: 1.0 s fade; controls disabled. At 0.5 s remaining, teleport to the centre-spline point at
-  `max(currentDistance - 20 m, startDistance + 1 m)`, raised **+1.5 m**, heading toward the spline point 1 m
+  `max(currentDistance - 20 m, validRangeMin + 1 m)`, raised **+1.5 m**, heading toward the spline point 1 m
   further on, roll 0; zero linear and angular velocity, wheel spins 0; run **100 settle steps** (handbrake 1.0);
   fade in. **No time penalty**; the clock keeps running (cost ≈ 1 s + 20 m).
+  [V 0x4b3f0b-0x4b3f25: `fld [esi+0x174]; fadd 1.0 (0x7fc798); push 20.0 (0x41a00000); call 0x74d980`. The floor is
+  the player's range minimum +0x174 (the stage's `race.splineRange` minimum, the link INFERRED, docs/orig/race.md §3),
+  not the start distance: on corsica-2-f (splineRange 550, start line 545) the floor is 551. Corrected 2026-10-30; the
+  earlier "startDistance + 1 m" was wrong. Lap circuits have no splineRange (±FLT_MAX): 20 m back, across the line.]
 * Pacenotes are not replayed after a reset (§5.7).
 * **AI stuck rule**: below 30 km/h for 20 s → reset in place (0 m back) [V code, I applies to AI].
 * [D] rally-web may add a "stuck" auto-reset for the player using the same rule if playtests need it.
@@ -1824,7 +2026,7 @@ yaw torque while sliding) and the turbo spool that gates power-on rotation.
 
 Measured [M] on gravel with the §7 counter-steer probe: awd_wrc holds every target 10-40° at steer +0.05…+0.65
 (shipped +0.40…+0.89), fwd_hatch 10-40° at +0.31…+0.78 (shipped: none), rwd_classic 10-45° (unchanged); on sand
-and mud awd holds 10-45° / 10-40° and fwd 10-40°. Side effects: T6 recovery 0.45-0.52 s, T7 ≤ 3.4°, T3 braking
+and mud awd holds 10-45° / 10-40° and fwd 10-40°. Side effects: T6 recovery 0.45-0.52 s, T7 ≤ 3.4° (v1.5: rwd with a spooled turbo holds a 5-6° power-on attitude for ≈ 2 s at 100 → 190 km/h, max 6.2°, then 3.7°; the ride-height fix lowers the tyre contact by 3 cm), T3 braking
 unchanged (±1 %), T4 tarmac peak lateral within ±3 %; on the loose and icy surfaces the unfiltered T4 maximum moves
 by -15…+13 % because the cars now drift in the steady-cornering bot (awd ice 1.33 g against 1.57, fwd gravel 2.20
 against 1.94); fwd keeps its power understeer on corner entry (T9 window +58 %), the awd no longer tightens on power
@@ -2074,13 +2276,13 @@ rpm wobble). Required for ghosts and replays.
 
 | # | Item | Status | What we do now |
 |---|---|---|---|
-| 1 | Chassis-ground collision (FUN_006d0970, surface BodyK/BodyKScale/Epsilon) | not decoded; v1.3: the [D] hull touches flat tarmac in ≈ 100 km/h full-lock handbrake slides, \|Δβ\| < 1e-4 rad, Δv < 0.1 km/h (§2.9) | our impulse model §2.9 [D]; low priority for handling feel |
-| 2 | Body ground share `nb` in tyre loads (B+0x14c) | read [V], meaning unknown | 0 [G] |
-| 3 | Hit semantics of the wheel ray (compression vs fraction, W+0xc0/+0xc4, written by the ray callback this+0x88) | **resolved v1.4 [R]**: W+0xc4 = -SL·(up·n), W+0xc0 = comp·W+0xc4; the sink LOWERS the car (§2.5.3); the bump pattern samples the ray end point W+0x94 | compression = SL - hitDist; x = 1 - (comp - sink/(SL·cosθ))/SL |
+| 1 | Chassis-ground collision (FUN_006d0970, surface BodyK/BodyKScale/Epsilon) | **resolved v1.5** [V executed, R]: hull probes + body solver ported literally (§2.9); open: the material-0x23 branch, the impact-effect outputs B+0x190..0x1d0, the source of the corner states phys+0xa8..0xb4 | the original's model |
+| 2 | Body ground share `nb` in tyre loads (B+0x14c) | **resolved v1.5** [V, R]: the hull push direction's y while the hull touches; B+0x140 = nb/(nb + n) feeds the solver's friction | §2.5.5 |
+| 3 | Hit semantics of the wheel ray (compression vs fraction, W+0xc0/+0xc4, written by the ray callback this+0x88) | **resolved v1.4/v1.5 [R]**: W+0xc0 = depth = dot(end − v0, n), W+0xc4 = cos = dot(n, ray) = −SL·(n·up), so c0/c4 = (SL − hitDist)/SL is a FRACTION (v1.4 read it as metres); the sink LOWERS the car; the bump pattern samples the ray end point W+0x94 | x = 1 − (sink + c0)/(c4·SL) (§2.5.3) |
 | 4 | Base AWD split `setup.awdBaseSplit` (S+0x1c) initial value | **resolved v1.3** [V]: the constructor FUN_006d7720 writes `in_ECX[7] = 0x3f800000` (S+0x1c = 1.0); the only read is FUN_006c7170 `fs = S[+0x1c]·S[+0x8]` | 1.0 (50/50) |
 | 5 | Setup menu value order (which label is index 0/1/2), esp. steering Loose/Tight | not recovered (v1.3: the default index decides Fast vs Slow; Slow cuts a held awd slide from 17.6° to 2.4° β, reference model at 101 km/h, steer 0.5 [M]) | our labels §5.5 [D]; default Fast (the most slide-friendly); both are a menu choice, which serves as the A/B |
 | 6 | Original render/camera frame rate (camera constants are per frame) | unknown | 60 Hz reference [I] |
-| 7 | Triggers of the two extra drags (phys+0x28 one-shot × 0.85; phys+0x44 × bodyBrakingFactorForTrack 0.4, both × (0.15 + kmh/1920)) | not found | omitted |
+| 7 | Triggers of the two extra drags (phys+0x28 one-shot × 0.85; phys+0x44 × bodyBrakingFactorForTrack 0.4, both × (0.15 + kmh/1920)) | **phys+0x44 resolved v1.5** [V, R]: set by the player state machine FUN_004b3790 state 4 (race over); the drag is reproduced on the 360 post-finish steps of run 2 (§2.7). phys+0x28: the bush flag, set with phys+0x2c = collisionElasticConstant by the object pass FUN_004a7bc0 (0x4a86b5 / 0x4a86b8, 2026-10-30; never set in the traces, which had no bush contact) | phys+0x44: `ICarSim.setTrackBraking(factor)` (the race controller turns it on after the finish); phys+0x28: the flag is CarTelemetry.collision.bush, the drag is not ported |
 | 8 | "Asphalt override" friction mode (phys+0xcc, forces tyre row 5+tyre and FrictionLevel ≤ 0) | **resolved v1.3** [V]: AI / non-local cars only, set from the player flags (§4.2) | omitted for the player (correct); matters only for AI / ghost pace calibration |
 | 9 | Collision-to-damage mapping; whether damage occurs in normal play | not found | damage off (DEV-5) |
 | 10 | Car–car collision response (FUN_004a7980 → FUN_006d4390) | not studied | use §2.9 impulses between hull points [D] |
@@ -2263,3 +2465,35 @@ precision (Fy / Fx error ≤ 7.2e-5 of max(50 N, 5 % μFz); Mz, α_eq and the in
 Not covered by the runtime data: chassis-ground and object collisions (handled outside the step or excluded),
 damage, the AI-only friction mode, manual gearbox, snow / ice / mud / sand surfaces (not on this track) and the
 idle / rev-limiter rpm dither (different RNG; ±16 rpm idle, ±512 rpm at the cut).
+
+**v1.5 (the ground interface on the original collision mesh; sim builder).** Tools (`research/frida/`, gitignored):
+`susp_proof.py` (the compression term against the traces and the gcm port), `compare.audit.ts` (one-step and
+open-loop replay; `MESH=<stage>` replays on the built collision part of the ORIGINAL Track.gcm, wheels and hull
+segments included; `LEGACY=1` runs the v1.4 car.ts for comparison; `CARS=all CAR=… ORIGCAR=…` replays an AI car with
+the §4.2 AI friction mode), `emu_body.py` + `bodysolver.audit.ts` (FUN_006d0970 executed in unicorn vs the port),
+`port_hulls.py` (src/sim/origHulls.ts). The replay now hands the sim the recorded ray outputs c0 / c4 as
+RayHit.depth / cos (v1.4 fed the fake distance SL − c0/c4) and its open-loop planes pass through each hit face
+(`rayEnd − c0·n`; v1.4 used the contact point C+0x24, which sits 2-3 cm above the face).
+
+| Where | Was | Now | Evidence |
+|---|---|---|---|
+| §2.5.3, §8 #3 | `x = 1 − (comp − sink/(SL·cosθ))/SL`, comp = SL − hitDist in metres | `x = 1 − (sink + c0)/(c4·SL)` with the ray's depth / cos: the compression is the FRACTION (SL − hitDist)/SL; the body rides ≈ 2.5 cm higher | recorded ext = the exe formula to ≤ 8.9e-5 over 302,945 wheel hits (metres formula: median 0.036); Δc0 = 1.000000·dot(Δend, n); open-loop end error 25-27 mm → 0.6-0.8 mm |
+| §2.5.1 | raycast down the body axis | the original's one-sided SEGMENT mount → mount − SL·up with face-cache slot wheel + 24·car | on Track.gcm the sim's own rays reproduce the recorded c0 / c4 to 8.1e-5 m / 7.7e-4, 1 contact mismatch in 282,228 wheel-steps |
+| §2.9, DEV-4, §3.4 | own impulse model on height queries, generic box hull | the original's hull probes (FUN_006cea90 tail) and body solver (FUN_006d0970) ported literally; the cars' Car_<Name>.col hulls | executed-exe equivalence on 3,000 states (float32); the 6 recorded contact steps reproduced to 2.7e-5 m/s |
+| §2.5.5, §8 #2 | nb = 0 [G] | nb = B+0x14c (push direction y) while the hull touches; B+0x140 = nb/(nb + n) | FUN_006cfb50 switch; contact steps above |
+| §2.7, §8 #7 | post-finish braking not modelled | phys+0x44 track braking `factor·(km/h/240·0.125 + 0.15)·Fext.y·vL` at the hull bottom centre | run 2 one-step max \|v error\| 0.285 → 0.016 m/s, max \|L error\| 108 → 7.7 N·m·s; open-loop max 0.355 → 0.012 m |
+| §2.7 | chassis drags at (0, hullBottomY, 0) | at (0, (hull[0].y + hull[3].y)/2, 0) (identical for the box) | asm 0x6cd9xx: hull points 0 and 3 |
+
+Results (human car FordEscort, rallycross1, run 1 / run 2; before → after):
+* one-step, recorded rays: unchanged (|v error| median 5.4e-7, p99 4.0e-5 m/s on run 2; ext error ≤ 1.7e-4; 0 mode /
+  gear mismatches), except the 360 post-finish steps now modelled (max |v error| 0.285 → 0.016 m/s);
+* open-loop, 2 s windows on the hit-face planes: run 1 median 10 → 0.8 mm (max 793 → 2 mm); run 2 median 7 → 0.64 mm,
+  p99 22 → 5 mm, max 355 → 12 mm (549 windows). The v1.4 car.ts on the same geometric planes: median 25 / 27 mm;
+* closed loop on the original Track.gcm (wheels AND hull on the mesh, the car's own hull): one-step |v error| median
+  3.2e-5 m/s, open-loop median 0.64 mm, p99 3.8 mm, max 12 mm (run 2; run 1 median 0.8 mm, max 1.4 mm); AI cars
+  Micra / Corolla (AI friction mode) median 0.61-0.63 mm over 361-365 windows;
+* synthetic self-test (rally-web's own trace in the original's layout): open-loop median 7 → 0.03 mm;
+* tyre audit (281,564 FUN_006d0410 calls): unchanged (Fy / Fx ≤ 7.2e-5 relative).
+Still not covered by runtime data: the anchor friction on real contacts (only executed cases), the material-0x23
+branch, damage, manual gearbox, and every surface other than GRASS / ASPHALT / GRAVEL (their rows are verified
+against PhysicsParam.con, §4.3).

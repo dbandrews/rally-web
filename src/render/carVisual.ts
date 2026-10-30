@@ -1,15 +1,22 @@
 /**
- * src/render/carVisual.ts — one rendered car: lofted body (per-slot meshes), four wheel rigs, brake /
- * reverse / head lights, ghost variant (render builder).
+ * src/render/carVisual.ts — one rendered car (cars builder): the procedural archetype car — lofted body (per-slot
+ * meshes), four wheel rigs, brake / reverse / head lights, ghost variant — and the host of the ORIGINAL car.
  *
  * Wheel rig per wheel: root (position = WheelVisual.centreLocal + surface jitter) → steer pivot
  * (rotation.y = -steerAngle, rate-limited to 4 rad/s, §5.2) → spinner (rotation.x = -spinAngle) → tyre/rim.
+ *
+ * Original car (docs/ASSETS.md §10 gap 2): GameRenderer.addCar starts loadOriginalCar (src/render/orig/car.ts) when
+ * AddCarOptions.origCar is set and hands the result to setOriginal(); from then on update / setVisible / setNight
+ * drive the original visual and the procedural meshes stay hidden. While that load runs (setOriginalPending) the
+ * procedural meshes are hidden too; they show only as the fallback (no assets, `?orig=0`, a failed load).
+ * dispose() disposes both (the renderer then disposes the original's texture scope).
  */
 import * as THREE from 'three';
 import { SURFACE_INFO } from '../core/constants';
 import { applyThreeQuat } from '../core/space';
 import type { ArchetypeId, CarRenderState } from '../core/types';
 import { PROFILES, SLOTS, carGeometry, restWheelCentre, type Slot } from './carModel';
+import type { OriginalCarVisual } from './orig/car';
 import { liveryColors, liveryTexture } from './livery';
 import { rimTexture } from './textures';
 
@@ -56,6 +63,13 @@ export class CarVisual {
   private readonly headMat: THREE.MeshStandardMaterial;
   private night = false;
   private time = 0;
+  /** The original car shown instead of the procedural meshes (null until loaded / for archetype cars). */
+  private orig: OriginalCarVisual | null = null;
+  private origCamera: THREE.Camera | null = null;
+  private visible = true;
+  /** An original car is loading for this visual: the procedural stand-in stays hidden meanwhile (the original
+   *  loads the car with the race, so a stand-in is never seen). */
+  private pendingOrig = false;
 
   constructor(archetype: ArchetypeId, opts: CarVisualOptions = {}) {
     this.archetype = archetype;
@@ -160,15 +174,47 @@ export class CarVisual {
   setNight(on: boolean): void {
     this.night = on;
     this.headMat.emissiveIntensity = on ? 4 : 0.25;
+    this.orig?.setNight(on);
   }
 
   /** Hide / show the whole car (bumper / look-back cameras). */
   setVisible(on: boolean): void {
-    this.root.visible = on;
+    this.visible = on;
+    this.root.visible = on && !this.orig && !this.pendingOrig;
+    this.orig?.setVisible(on);
+  }
+
+  /** An original car load started (true: hide the procedural meshes) or settled (false: they show again unless the
+   *  original arrived). */
+  setOriginalPending(on: boolean): void {
+    this.pendingOrig = on;
+    this.setVisible(this.visible);
+  }
+
+  /** Show the original car instead of the procedural one (`camera` picks its LOD and lens flares). */
+  setOriginal(orig: OriginalCarVisual, camera: THREE.Camera | null): void {
+    this.orig?.dispose();
+    this.orig = orig;
+    this.origCamera = camera;
+    (this.root.parent ?? null)?.add(orig.root);
+    orig.root.position.copy(this.root.position);
+    orig.root.quaternion.copy(this.root.quaternion);
+    this.setVisible(this.visible);
+  }
+
+  /** The original car visual when one is shown. */
+  get original(): OriginalCarVisual | null {
+    return this.orig;
   }
 
   update(state: CarRenderState, frameDt: number): void {
     this.time += frameDt;
+    if (this.orig) {
+      this.root.position.set(state.pos.x, state.pos.y, state.pos.z);
+      applyThreeQuat(this.root.quaternion, state.quat);
+      this.orig.apply(state, frameDt, this.origCamera);
+      return;
+    }
     this.root.position.set(state.pos.x, state.pos.y, state.pos.z);
     applyThreeQuat(this.root.quaternion, state.quat);
     const tel = state.telemetry;
@@ -201,5 +247,7 @@ export class CarVisual {
   dispose(): void {
     for (const m of this.mats) m.dispose();
     this.root.removeFromParent();
+    this.orig?.dispose();
+    this.orig = null;
   }
 }

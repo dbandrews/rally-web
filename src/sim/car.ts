@@ -8,7 +8,7 @@
  *
  * REQUIRED EXPORTS (keep these signatures; contract in src/core/types.ts ICarSim):
  *   class CarSim implements ICarSim
- *     constructor(opts: CarSimOptions)          // { id?, params, world, surfaces?, seed? }
+ *     constructor(opts: CarSimOptions)          // { id?, params, world, surfaces?, seed?, slotBase?, origCar? }
  *     readonly id: string; readonly archetype: ArchetypeId; readonly params: Readonly<CarParams>
  *     reset(pose: SimPose, settleSteps = 100): void
  *     step(controls: Readonly<Controls>, dt: number): void      // dt is always DT = 1/120
@@ -21,21 +21,30 @@
  *     setFrozen(frozen: boolean): void
  *
  * Extra (sim-internal / tests): debug(), damageState(), repair(). (telemetry().simFaults is in the contract.)
+ * Contract extras: CarSimOptions.origCar (the original car's Car_<Name>.col hull, §3.4), ICarSim.setTrackBraking(factor)
+ *   (the original's post-finish braking, phys+0x44 × bodyBrakingFactorForTrack, §2.7), telemetry().collision (the
+ *   original's collision record for the impact / bush sounds, CollisionTelemetry). Extra (game): setOrigCar(name), hullCar.
  *
  * Implementation notes
  *  - Wheel order 0 FL, 1 FR, 2 RR, 3 RL. wheel.front params apply to 0/1, wheel.rear to 2/3.
  *  - Every literal constant of §2 that has a §6 tuning key reads that key from `params`; at shipped
  *    values the arithmetic is identical to the spec / reference.
- *  - §2.9 chassis-ground collision uses hull points against world.heightAt/normalAt (the spec's "or a
- *    height query"), so it is correct for any body orientation. Obstacles (trees, rocks, posts) are
- *    vertical cylinders from world.obstaclesNear(), resolved against the hull footprint rectangle with a
- *    forgiving impulse (low restitution, contact at CG height so hits yaw the car but never flip it).
+ *  - Ground queries are the original's SEGMENT queries (WorldQuery.segment, research/formats/gcm.md §3):
+ *    wheels mount → mount − SL·bodyUp with face-cache slot wheel + 24·car, the suspension reads the hit's
+ *    depth / cos as the original's c0 / c4 (§2.5.1 / §2.5.3, FUN_006cea90 / FUN_006cf620); the chassis hull
+ *    (12 points: the car's Car_<Name>.col via origHulls.ts, else the §3.4 box) is probed by segments from the
+ *    PREVIOUS step's centre of mass to each hull point (slot 8 + i + 24·car, FUN_006cea90 tail) and solved by the
+ *    port of the original's body solver FUN_006d0970 (§2.9). Static objects: on worlds with the objects' own
+ *    collision meshes (world.objectCollidersNear, the ported stages) the original's object pass after each step
+ *    (objectPass: FUN_004a7bc0 gate → FUN_006d1a80 hull segments through the object's mesh → the object body
+ *    solver FUN_006d21c0); elsewhere vertical cylinders from world.obstaclesNear(), resolved against the hull
+ *    footprint rectangle with a forgiving impulse (contact at CG height: hits yaw the car, never flip it) [D].
  *  - NaN / explosion guard: the state is snapshotted before every step; a non-finite or absurd state is
  *    rolled back, velocities are zeroed and telemetry.simFaults is incremented.
  *  - telemetry() builds a fresh plain object once per physics step (cached until the next step), so a
  *    reference kept by a caller is never mutated later.
  */
-import { DT, MATERIAL_SOLID_MIN, SETTLE_STEPS, surfaceFromMaterial } from '../core/constants';
+import { DT, MATERIAL_SOLID_MIN, SETTLE_STEPS, materialFromOrig, origFromMaterial, surfaceFromMaterial } from '../core/constants';
 
 /** DEV-9 settle: steps with sleep enabled at the end, vertical-calm steps needed, cap on the sleep-free part. */
 const SETTLE_SLEEP_STEPS = 15;
@@ -52,8 +61,11 @@ import type {
   Controls,
   DeepPartial,
   ICarSim,
+  ObjectCollider,
+  ObjectSegmentHit,
   Obstacle,
   Quad,
+  RayHit,
   SimPose,
   SurfaceDef,
   SurfaceId,
@@ -62,6 +74,8 @@ import type {
   WheelTelemetry,
   WorldQuery,
 } from '../core/types';
+import { hullSlot, makeRayHit, SLOTS_PER_CAR, wheelSlot } from '../core/worldQuery';
+import { origHull } from './origHulls';
 import { makeSurfaceTable } from './params';
 import { buildLoadTable, torqueCurveAt, tyreForce, type TyreForceOut } from './tables';
 
@@ -69,6 +83,9 @@ import { buildLoadTable, torqueCurveAt, tyreForce, type TyreForceOut } from './t
 
 /** Kept for older imports: simFaults is now part of the CarTelemetry contract. */
 export type SimTelemetry = CarTelemetry;
+
+/** Kept for older imports: `origCar` (the original car's Car_<Name>.col hull, §3.4) is part of CarSimOptions now. */
+export type CarSimInit = CarSimOptions;
 
 /** §5.6 damage state (only used when params.damage.physical). */
 export interface DamageState {
@@ -133,17 +150,55 @@ FALLBACK_SURFACE.maxDepth = 0;
 FALLBACK_SURFACE.bump = 0;
 
 /**
- * §2.9 chassis friction μ_body = BODY_FRICTION_K · BodyK. The spec's starting guess is 0.5 [G]; it is tuned
- * to the §2.9 target "slides on its roof with about 0.4-0.6 g on gravel": while sliding on the roof the spec's
- * own rules already apply air gravity ×1.45 (< 3 wheel contacts above 10 km/h, §2.10), the 2 m/s² free-flight
- * damping and the §2.7 chassis drag, so 0.5 gives ≈ 1.05 g. 0.12 gives ≈ 0.5 g.
+ * §2.9 body solver constants [V FUN_006d0970, asm 0x6d0970-0x6d1a7b]: positional push-out cap 0.5 m (0x7fc968),
+ * friction anchor window 0.2 s (0x7fc78c), anchor normal agreement 0.8 (0x8066fc), contact-below-COM cosine −0.4
+ * (0x825efc), side-tip friction 26.64065·m (0x825ef8) faded by |vL.z|/64 below 16 m/s (0x825ef4, 0x8084f8), normal
+ * impulse cap 10000 N·s (0x813474), upward cap 8000 (0x825eec) / 500 on non-ground materials (0x81a518).
  */
-export const BODY_FRICTION_K = 0.12;
-/** §2.9 restitution e = BODY_RESTITUTION_K · Epsilon [G]. */
-export const BODY_RESTITUTION_K = 0.1;
-
-/** Chassis contact columns for non-ground solids (material ≥ 32: rock walls, buildings). [D] */
-const SOLID_BODY = { bodyK: 0.9, epsilon: 0.5 };
+const BS_PUSH_MAX = 0.5;
+const BS_ANCHOR_T = 0.2;
+const BS_ANCHOR_DOT = 0.8;
+const BS_BELOW_COS = -0.4;
+const BS_TIP_K = 26.640649795532227;
+const BS_IMPULSE_MAX = 10000;
+const BS_UP_MAX = 8000;
+const BS_UP_MAX_SOLID = 500;
+/** Hull contact test of FUN_006cea90: depth < 0.01 and fewer than 4 contacts so far. */
+const HULL_DEPTH_MAX = 0.01;
+const HULL_MAX_CONTACTS = 4;
+/**
+ * The object pass FUN_004a7980 / FUN_004a7bc0 [V asm 0x4a7bc0-0x4a8ae0], run after each physics substep (game loop
+ * FUN_0049ffe0): the car's candidate list is refreshed every 16 substeps (game+0x940 = 0x10, set at 0x484143), car k
+ * when the substep counter (game+0x944, mod 16) equals 4k (switch 0x4a7cdb; cars ≥ 4 never), with the objects within
+ * 16·0.25 m + the car's radius (0x4a7d51). A mesh object (its geometry answers the colour interface, as every
+ * Standard/TreeMesh instance does) is then tested only while |origin − car| ≤ 0.2·radius + 1.5 (0x4a8008: 0x7fc78c,
+ * 0x8070d0; 3-D) and its render box overlaps the car's box (FUN_005d5ef0/5f90/5fe0: no car-box face plane has all 8
+ * object-box corners outside).
+ */
+const OBJ_REFRESH = 16;
+const OBJ_REFRESH_STEP_M = 0.25;
+const OBJ_MAX_CARS = 4;
+const OBJ_GATE_K = 0.2;
+const OBJ_GATE_M = 1.5;
+/** FUN_006d1a80: the contact material is the object's collisionMaterial when 0..22, else 1 (ASPHALT). */
+const OBJ_MAT_MAX = 0x16;
+const OBJ_MAT_DEFAULT = 1;
+/** FUN_006d21c0, the object contacts' body solver: FUN_006d0970 with its own anchor timer (B+0x138) and the friction
+ *  impulse clamped to ±1000 per component before it reaches the velocity (0x6d3260-0x6d3321, 0x807308 / 0x825f04). */
+const BS_OBJ_JT_MAX = 1000;
+/** The original's −1 material (no hit / no material) as a raw byte. */
+const ORIG_NONE = 255;
+/** Original materials > 23 are non-ground solids (body flag 0x80); 0x23 is the special "flag only" material. */
+const ORIG_GROUND_MAX = 23;
+const ORIG_SPECIAL = 0x23;
+/** The original's DUMMY material (23, no rally-web surface) and the body solver's ≥ 0x20 "solid" cut (0x6d131b). */
+const ORIG_DUMMY = 23;
+const ORIG_SOLID_MIN = 0x20;
+/** Body-solver columns of a material row (PhysicsParam.con: BodyK, BodyKScale, MaxDepth, Epsilon). */
+type BodyColumns = Pick<SurfaceDef, 'bodyK' | 'bodyKScale' | 'maxDepth' | 'epsilon'>;
+/** PhysicsParam.con row 23 (DUMMY) and the getter's "missing row → all columns 1.0" (FUN_006d5d00) [V]. */
+const DUMMY_BODY: BodyColumns = { bodyK: 0.01, bodyKScale: 1, maxDepth: 0, epsilon: 1 };
+const MISSING_BODY: BodyColumns = { bodyK: 1, bodyKScale: 1, maxDepth: 1, epsilon: 1 };
 
 /** Obstacle (tree / rock / post) impulse model [D]: forgiving. */
 const OBSTACLE_RESTITUTION = 0.15;
@@ -153,6 +208,25 @@ const OBSTACLE_ANGULAR = 0.5;
 const OBSTACLE_PUSH = 0.8;
 /** Hull half width for obstacles and the hull points (§3.4). */
 const HULL_HALF_WIDTH = 0.85;
+
+/**
+ * The collision record for the sounds (CarTelemetry.collision, sound.md §7) [V]: the body solver stores the normal
+ * impulse less 100 (0x806660) in B+0x19c when jn > 100 (0x6d1562-0x6d15c5; B+0x19c = 0 at the solver's start); the
+ * object pass FUN_004a7bc0 copies B+0x19c after an object hit into the record's strength (0x4a81c8).
+ */
+const STRENGTH_FLOOR = 100;
+/** Bush contact (record +0x28, object pass 0x4a7f1c-0x4a86b8): the car centre within 2 m of the soft object. */
+const BUSH_REACH_M = 2;
+/**
+ * Raw collisionMaterial of a procedural obstacle (no ObjectTemplate behind it) [D]: the wood-like kinds take the
+ * trees' 6 (WOOD, Tree.ssc), everything else 1 (ASPHALT, the Hard patch). Original-world proxies carry their own.
+ */
+const WOOD_OBSTACLES: ReadonlySet<string> = new Set(['tree', 'pine', 'deadTree', 'cactus', 'post', 'marker', 'sign', 'fence']);
+function obstacleMaterial(ob: Obstacle): number {
+  const m = (ob as Obstacle & { material?: unknown }).material;
+  if (typeof m === 'number' && Number.isFinite(m)) return m;
+  return WOOD_OBSTACLES.has(ob.kind) ? 6 : 1;
+}
 
 /** NaN guard bounds. */
 const MAX_SPEED = 250; // m/s
@@ -188,6 +262,10 @@ class WheelState {
   surf: SurfaceDef | null = null;
   surfId: SurfaceId | null = null;
   hitDist = 0;
+  /** The original's W+0xc0 = depth = dot(rayEnd − v0, n) of the hit face (m, ≤ 0; 0 on a miss) and W+0xc4 =
+   *  cos = dot(n, ray) with ray = −SL·up (= −SL·cosθ; 1 on a miss): §2.5.1 / gcm.md §3.5 [V, R]. */
+  c0 = 0;
+  c4 = 1;
   /** World x/z of this step's ray END point (mount - up·springLength, W+0x94/+0x9c): the washboard bump
    *  pattern is sampled here [runtime-verified, Frida trace]. */
   hitX = 0;
@@ -226,6 +304,8 @@ class WheelState {
     this.surf = null;
     this.surfId = null;
     this.hitDist = 0;
+    this.c0 = 0;
+    this.c4 = 1;
     this.normalW.x = 0;
     this.normalW.y = 1;
     this.normalW.z = 0;
@@ -263,7 +343,76 @@ export class CarSim implements ICarSim {
   private readonly Fext: V3 = v3();
   private readonly loadMoment: V3 = v3();
   private airMul = 1;
+  /** P+0x44 "track braking" drag after the finish (FUN_004b3790 state 4 sets it) × the track's
+   *  Physics.bodyBrakingFactorForTrack (Play.con, 0.4; 0.1 on hillclimb3cf); 0 = off [V 0x6cd7ec]. */
+  private trackBraking = 0;
+  /** CP+0x34: the hull touched the ground this step (FUN_006cea90: ≥ 1 accumulated contact). */
   private bodyOnGround = false;
+  /** B+0xd8: body position at the start of stepB (the previous step's COM), origin of the hull segments. */
+  private readonly prevPos: V3 = v3();
+
+  // ---- §2.9 hull probes [V FUN_006cea90 tail] ----
+  /** Face-cache slot base = 24·carIndex (CarSimOptions.slotBase) and the car index (turn = parity == index >> 1). */
+  private readonly slotBase: number;
+  private readonly carIndex: number;
+  /** Original car whose Car_<Name>.col hull is used (null = the archetype box of §3.4). */
+  private origCar: string | null = null;
+  /** P+0x9c: hull points whose segment hit last time (bit i); cleared on the car's turn. */
+  private hullMask = 0;
+  /** P+0x94 / P+0x98: a hull segment hit this step or within the last 5 steps (the body solver then runs every step). */
+  private hullRecent = false;
+  private hullQuiet = 0;
+  /** P+0xa8..0xb4: per-corner state read for the belt points 4..7 when ≥ 3 wheels touch (≥ 2 = probe). The original
+   *  raises them to 4 after crashes (damage, DEV-5); 1 = undamaged [V reads, I meaning]. */
+  private readonly cornerState: [number, number, number, number] = [1, 1, 1, 1];
+  /** Body flags B+4 of this step: 1 hull contact, 0x40 more bottom than upper contacts, 0x80 non-ground material. */
+  private hullFlags = 0;
+  /** B+0x13c mean signed depth (≤ 0), B+0x144 smallest raw material, B+0x148 push direction (world, unit),
+   *  B+0x160 depth-weighted contact point (body frame). */
+  private hullDepth = 0;
+  private hullMat = 0;
+  private readonly hullDir: V3 = v3(0, 1, 0);
+  private readonly hullPt: V3 = v3();
+  /** B+0x140: the body's share of the weight, nb / (nb + n) (FUN_006cfb50, read by the body solver). */
+  private bodyShare = 0;
+  /** B+0x19c: the body solver's impulse strength (jn − 100 when jn > 100) of its latest run (collision record). */
+  private bodyStrength = 0;
+  /** The object collision record (car record +0x30/+0x34/+0x38; counted, see CollisionTelemetry) and the bush flag
+   *  (record +0x28) of this step. */
+  private objectHits = 0;
+  private objectType = -1;
+  private objectStrength = 0;
+  private inBush = false;
+  private softBuf: Obstacle[] = [];
+  // ---- §2.9 body solver state [V FUN_006d0970] ----
+  /** B+0x134 friction anchor timer, B+0x154 last push direction, B+0x16c last contact point (body), B+0x114 /
+   *  B+0xe4.. position and axes at the last solver call. */
+  private bsT = 0;
+  private readonly bsPrevN: V3 = v3();
+  private readonly bsPrevC: V3 = v3();
+  private readonly bsPrevPos: V3 = v3();
+  private readonly bsPrevR = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  // ---- the object pass [V FUN_004a7bc0 / FUN_006d1a80 / FUN_006d21c0] (mesh worlds with object meshes) ----
+  /** B+0x138: the object solver's friction anchor timer (the anchor memory B+0x154.. is shared with the ground's). */
+  private objT = 0;
+  /** The car's candidate objects (refreshed every OBJ_REFRESH substeps; empty until the first refresh). */
+  private objList: ObjectCollider[] = [];
+  /** Refresh the candidates on the next pass (after a reset; the original's list is only stale by ≤ 16 steps). */
+  private objStale = true;
+  /** One object's hull accumulation (FUN_006d1a80 writes B+4 / 0x13c / 0x144 / 0x148 / 0x160, then FUN_006d21c0 reads
+   *  them); kept apart from the ground pass's so the telemetry keeps the ground values. */
+  private objFlags = 0;
+  private objDepth = 0;
+  private objMat = 0;
+  private readonly objDir: V3 = v3(0, 1, 0);
+  private readonly objPt: V3 = v3();
+  /** B+0x19c after the object solver (the record's object strength). */
+  private objSolveStrength = 0;
+  private readonly objHit: ObjectSegmentHit = { normal: v3(), point: v3(), depth: 0 };
+  /** The car's box (body frame, from the hull points) and its radius, for the object pass's gate. */
+  private readonly carBoxMin: V3 = v3();
+  private readonly carBoxMax: V3 = v3();
+  private carRadius = 0;
 
   // ---- car state (§1.4 CarState) ----
   private speedKmh = 0;
@@ -327,11 +476,15 @@ export class CarSim implements ICarSim {
   // ---- scratch ----
   private readonly tf: TyreForceOut = { Fx: 0, Fy: 0, Mz: 0, aEq: 0 };
   private readonly tmpO: V3 = v3();
-  private readonly tmpD: V3 = v3();
   private readonly cRW: V3 = v3();
   private readonly cVP: V3 = v3();
   private readonly cN: V3 = v3();
   private readonly cT: V3 = v3();
+  private readonly ray: V3 = v3();
+  /** WorldQuery.segment's `out` for the wheel and hull segments (every field read at once: no allocation per hit). */
+  private readonly segHit: RayHit = makeRayHit();
+  private readonly hullIdx = new Int32Array(HULL_MAX_CONTACTS);
+  private readonly hullDepths = new Float64Array(HULL_MAX_CONTACTS);
   private obsBuf: Obstacle[] = [];
   private readonly snap = new Float64Array(SNAP_SIZE);
   private readonly snapModes: (1 | 2)[] = [1, 1, 1, 1];
@@ -344,6 +497,9 @@ export class CarSim implements ICarSim {
     this.world = opts.world;
     this.surfaces = opts.surfaces ?? makeSurfaceTable();
     this.rng = new Rng(opts.seed ?? 1);
+    this.slotBase = Number.isInteger(opts.slotBase) && (opts.slotBase as number) >= 0 ? (opts.slotBase as number) : 0;
+    this.carIndex = Math.floor(this.slotBase / SLOTS_PER_CAR);
+    this.origCar = opts.origCar ?? null;
     this.rebuildDerived();
     this.rpm = this.params.minRpm;
     this.boost = this.params.turboIdle;
@@ -376,7 +532,9 @@ export class CarSim implements ICarSim {
     zero(this.loadMoment);
     zero(this.Fworld);
     this.airMul = 1;
+    this.trackBraking = 0;
     this.bodyOnGround = false;
+    this.resetHullState();
     this.speedKmh = 0;
     this.thr = this.brk = 0;
     this.steerA[0] = this.steerA[1] = 0;
@@ -446,6 +604,7 @@ export class CarSim implements ICarSim {
     this.impact = 0;
     this.stepA(dt);
     this.stepB(dt);
+    this.objectPass(dt);
     this.steps++;
     if (!this.isSane()) this.restoreGood();
     this.updateAccel(dt);
@@ -473,6 +632,9 @@ export class CarSim implements ICarSim {
 
   setWorld(world: WorldQuery): void {
     this.world = world;
+    // the object pass's candidates belong to the old world
+    this.objList.length = 0;
+    this.objStale = true;
   }
 
   setParked(parked: boolean): void {
@@ -480,8 +642,29 @@ export class CarSim implements ICarSim {
     this.telCache = null;
   }
 
+  /**
+   * The original's post-finish "track braking" (P+0x44, set by the player state machine FUN_004b3790 state 4 when the
+   * race is over): a speed-proportional drag `F = factor·(km/h/240·0.125 + 0.15)·Fext.y·vL` (body frame) at the hull's
+   * bottom centre, on top of the normal model [V 0x6cd7ec-0x6cdbff]. `factor` = the stage's
+   * Physics.bodyBrakingFactorForTrack (Play.con: 0.4, hillclimb3cf 0.1); 0 switches it off (reset does too).
+   */
+  setTrackBraking(factor: number): void {
+    this.trackBraking = Number.isFinite(factor) && factor > 0 ? factor : 0;
+  }
+
   setFrozen(frozen: boolean): void {
     this.frozen = frozen;
+  }
+
+  /** Use the chassis hull of an original car (ORIG_CAR_IDS name); null / unknown = the archetype box (§3.4). */
+  setOrigCar(name: string | null): void {
+    this.origCar = name;
+    this.rebuildDerived();
+  }
+
+  /** The original car whose hull is in use, or null. */
+  get hullCar(): string | null {
+    return this.origCar !== null && origHull(this.origCar) ? this.origCar : null;
   }
 
   /** §5.6 damage state (copy). */
@@ -607,20 +790,71 @@ export class CarSim implements ICarSim {
     // §2.6.1 load tables per axle
     buildLoadTable(p.wheel.front, p.rebuildLoadTable, p.loadTableScale, this.loadTableF);
     buildLoadTable(p.wheel.rear, p.rebuildLoadTable, p.loadTableScale, this.loadTableR);
-    // §3.4 hull points
-    const zf = p.hullFrontZ;
-    const zr = p.hullRearZ;
-    const yb = p.hullBottomY;
-    const yt = -p.hullBottomY;
-    const hw = HULL_HALF_WIDTH;
-    this.hull = [
-      // bottom 4 (always probed)
-      v3(-hw, yb, zf), v3(hw, yb, zf), v3(hw, yb, zr), v3(-hw, yb, zr),
-      // mid 4 (the "8 points" set)
-      v3(-hw, yt, zf), v3(hw, yt, zf), v3(hw, yt, zr), v3(-hw, yt, zr),
-      // roof 4 (only when < 3 wheels touch)
-      v3(-0.5, 1.0, 0.12), v3(0.5, 1.0, 0.12), v3(0.48, 1.0, -1.06), v3(-0.48, 1.0, -1.06),
-    ];
+    // §3.4 hull points: the original car's Car_<Name>.col (first 12 points) when known, else the archetype box
+    // (bottom corners FL FR RR RL, belt-line corners, roof: the original's 12-point order)
+    const orig = origHull(this.origCar);
+    if (orig) this.hull = orig;
+    else {
+      const zf = p.hullFrontZ;
+      const zr = p.hullRearZ;
+      const yb = p.hullBottomY;
+      const yt = -p.hullBottomY;
+      const hw = HULL_HALF_WIDTH;
+      this.hull = [
+        v3(-hw, yb, zf), v3(hw, yb, zf), v3(hw, yb, zr), v3(-hw, yb, zr),
+        v3(-hw, yt, zf), v3(hw, yt, zf), v3(hw, yt, zr), v3(-hw, yt, zr),
+        v3(-0.5, 1.0, 0.12), v3(0.5, 1.0, 0.12), v3(0.48, 1.0, -1.06), v3(-0.48, 1.0, -1.06),
+      ];
+    }
+    // the object pass's car box / radius (the original uses the car geometry's box, object +8: the hull's box here [~])
+    setV(this.carBoxMin, Infinity, Infinity, Infinity);
+    setV(this.carBoxMax, -Infinity, -Infinity, -Infinity);
+    for (const h of this.hull) {
+      this.carBoxMin.x = Math.min(this.carBoxMin.x, h.x);
+      this.carBoxMin.y = Math.min(this.carBoxMin.y, h.y);
+      this.carBoxMin.z = Math.min(this.carBoxMin.z, h.z);
+      this.carBoxMax.x = Math.max(this.carBoxMax.x, h.x);
+      this.carBoxMax.y = Math.max(this.carBoxMax.y, h.y);
+      this.carBoxMax.z = Math.max(this.carBoxMax.z, h.z);
+    }
+    if (!this.hull.length) {
+      zero(this.carBoxMin);
+      zero(this.carBoxMax);
+    }
+    const bx = this.carBoxMax.x - this.carBoxMin.x, by = this.carBoxMax.y - this.carBoxMin.y, bz = this.carBoxMax.z - this.carBoxMin.z;
+    this.carRadius = 0.5 * Math.sqrt(bx * bx + by * by + bz * bz);
+  }
+
+  /** y of the hull's bottom centre (0, (hull[0].y + hull[3].y)/2, 0): where the chassis drags act [V 0x6cd2xx, 0x6cd9xx]. */
+  private hullBottomCentreY(): number {
+    const h = this.hull;
+    return h.length >= 4 ? (h[0].y + h[3].y) * 0.5 : this.params.hullBottomY;
+  }
+
+  /** Hull probe and body solver state at a reset (the original's body reset: axes identity, timers 0). */
+  private resetHullState(): void {
+    this.hullMask = 0;
+    this.hullRecent = false;
+    this.hullQuiet = 0;
+    this.hullFlags = 0;
+    this.hullDepth = 0;
+    this.hullMat = 0;
+    setV(this.hullDir, 0, 1, 0);
+    zero(this.hullPt);
+    this.bodyShare = 0;
+    this.bodyStrength = 0;
+    this.inBush = false;
+    this.bsT = 0;
+    zero(this.bsPrevN);
+    zero(this.bsPrevC);
+    copyV(this.bsPrevPos, this.pos);
+    this.bsPrevR.set([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    copyV(this.prevPos, this.pos);
+    this.objT = 0;
+    this.objStale = true;
+    this.objList.length = 0;
+    this.objFlags = 0;
+    this.objSolveStrength = 0;
   }
 
   // =================================================================================== step A (§2.1-§2.4)
@@ -939,7 +1173,8 @@ export class CarSim implements ICarSim {
     const sf = kmh <= p.assistSpeedLo ? 0 : Math.min(1, (kmh - p.assistSpeedLo) * p.assistSpeedSlope);
     this.sf = sf;
     const kappaThr = p.slipRatioThreshold * (1 + sf);
-    // B2 integrate pose with last step's velocities (symplectic Euler)
+    // B2 integrate pose with last step's velocities (symplectic Euler); B+0xd8 = the COM before it (hull origin)
+    copyV(this.prevPos, this.pos);
     this.pos.x += this.vW.x * dt;
     this.pos.y += this.vW.y * dt;
     this.pos.z += this.vW.z * dt;
@@ -981,46 +1216,66 @@ export class CarSim implements ICarSim {
     const absBeta = Math.abs(beta);
     this.stepParity ^= 1;
 
-    // B4 wheel raycasts (§2.5.1)
-    const dir = this.tmpD;
-    dir.x = -B_up.x;
-    dir.y = -B_up.y;
-    dir.z = -B_up.z;
+    // B4 wheel rays (§2.5.1) [V FUN_006cea90; R]: the SEGMENT mount → mount − SL·up (body axis, not world down),
+    // face-cache slot wheel + 24·car (gcm.md §3.5). Hit: c0 = depth = dot(end − v0, n) (W+0xc0, ≤ 0), c4 = cos =
+    // dot(n, ray) (W+0xc4 = −SL·(n·up)), normal copied; (unsigned)material ≥ 0x20 → no contact. Miss: material −1,
+    // normal (0, 1, 0), c0 = 0, c4 = 1.
+    let nWheel = 0;
     for (let i = 0; i < 4; i++) {
       const w = W[i];
-      const wp = i < 2 ? p.wheel.front : p.wheel.rear;
+      const SL = (i < 2 ? p.wheel.front : p.wheel.rear).springLength;
       const o = this.tmpO;
       this.toWorldTo(o, w.mount);
       o.x += this.pos.x;
       o.y += this.pos.y;
       o.z += this.pos.z;
-      const hit = this.world.raycast(o, dir, wp.springLength);
+      const ray = this.ray;
+      ray.x = -B_up.x * SL;
+      ray.y = -B_up.y * SL;
+      ray.z = -B_up.z * SL;
+      w.hitX = o.x + ray.x;
+      w.hitZ = o.z + ray.z;
+      const hit = this.world.segment(o, ray, wheelSlot(this.slotBase, i), this.segHit);
       const hn = hit ? hit.normal : null;
-      if (!hit || !hn || !(hit.material < MATERIAL_SOLID_MIN) || !Number.isFinite(hit.dist) || !(hn.y > 0.01) || !Number.isFinite(hn.x + hn.z)) {
+      let c0 = 0;
+      let c4 = 1;
+      if (hit && hn) {
+        c0 = hit.depth ?? hn.x * (o.x + ray.x - hit.point.x) + hn.y * (o.y + ray.y - hit.point.y) + hn.z * (o.z + ray.z - hit.point.z);
+        c4 = hit.cos ?? hn.x * ray.x + hn.y * ray.y + hn.z * ray.z;
+      }
+      if (!hit || !hn || !(hit.material < MATERIAL_SOLID_MIN) || !(c4 < 0) || !Number.isFinite(c0 + hn.x + hn.y + hn.z + hit.dist)) {
         w.contact = false;
         w.material = -1;
         w.surf = null;
         w.surfId = null;
+        w.c0 = 0;
+        w.c4 = 1;
         w.normalW.x = 0;
         w.normalW.y = 1;
         w.normalW.z = 0;
       } else {
+        nWheel++;
         w.contact = true;
         w.material = hit.material;
         const sid = surfaceFromMaterial(hit.material);
         w.surfId = sid;
         w.surf = sid ? this.surfaces[sid] : FALLBACK_SURFACE;
-        w.hitDist = Math.max(0, hit.dist);
-        w.hitX = o.x + dir.x * wp.springLength;
-        w.hitZ = o.z + dir.z * wp.springLength;
-        const nl = Math.hypot(hn.x, hn.y, hn.z);
-        w.normalW.x = hn.x / nl;
-        w.normalW.y = hn.y / nl;
-        w.normalW.z = hn.z / nl;
+        w.hitDist = hit.dist;
+        w.c0 = c0;
+        w.c4 = c4;
+        w.normalW.x = hn.x;
+        w.normalW.y = hn.y;
+        w.normalW.z = hn.z;
       }
     }
+    // B4b hull probes (§2.9) [V FUN_006cea90 tail]: contact accumulation for the body solver (B10) and the tyre
+    // loads (B6); sets bodyOnGround (CP+0x34).
+    this.hullProbes(nWheel);
 
-    // B5 suspension (§2.5.3)
+    // B5 suspension (§2.5.3) [V FUN_006cf620; R]: x = clamp(1 − (sink + c0) / (c4·SL), 0, 1). With the two ray
+    // outputs c0/c4 = (SL − hitDist)/SL is the compression FRACTION, so x = 1 − (SL − hitDist)/SL² + sink/(SL²·cosθ):
+    // the original's spring reads the geometric compression scaled by 1/SL (Frida traces run1/run2: |Δext| ≤ 9e-5
+    // against 303 k recorded wheel hits, gcm.md §3.5); the surface sink LOWERS the car.
     let n = 0;
     const k = p.setup.suspension;
     for (let i = 0; i < 4; i++) {
@@ -1034,11 +1289,7 @@ export class CarSim implements ICarSim {
       n++;
       const wp = i < 2 ? p.wheel.front : p.wheel.rear;
       const SL = wp.springLength;
-      const comp = SL - w.hitDist;
-      // Runtime-verified (Frida trace): x = 1 - (sink + c0) / (c4·SL) with c0 = comp·c4, c4 = -SL·(up·n), so the
-      // surface sink REDUCES compression by sink / (SL·cosθ): the wheel sinks in and the body rides lower.
-      const cosT = Math.max(0.05, B_up.x * w.normalW.x + B_up.y * w.normalW.y + B_up.z * w.normalW.z);
-      const x = clamp(1 - (comp - this.surfaceSink(w) / (SL * cosT)) / SL, 0, 1);
+      const x = clamp(1 - (this.surfaceSink(w) + w.c0) / (w.c4 * SL), 0, 1);
       const xPrev = w.ext === 1 ? x : w.ext;
       w.ext = x;
       const e = 1 - (xPrev + x) / 2;
@@ -1061,7 +1312,10 @@ export class CarSim implements ICarSim {
     // B6 tyre normal loads (§2.5.5)
     {
       const Fup = this.Fext.x * B_up.x + this.Fext.y * B_up.y + this.Fext.z * B_up.z;
-      const nb = this.bodyOnGround ? p.bodyGroundShare : 0;
+      // nb = the hull push direction's y while the hull touches (B+0x14c if body flag 1) [V FUN_006cfb50]; the
+      // body then carries nb / (nb + n) of the weight (B+0x140, read by the body solver's friction)
+      const nb = this.hullFlags & 1 ? this.hullDir.y : 0;
+      this.bodyShare = (n === 0 ? nb : n === 1 ? nb / (nb + 1) : nb / (nb + 4));
       const Tx = this.loadMoment.x;
       const Tz = this.loadMoment.z;
       if (n === 1) {
@@ -1351,10 +1605,25 @@ export class CarSim implements ICarSim {
         Facc.x += Fx;
         Facc.y += Fy;
         Facc.z += Fz;
-        const ay = p.hullBottomY; // application point (0, hullBottomY, 0)
+        const ay = this.hullBottomCentreY(); // application point (0, mean(hull[0].y, hull[3].y), 0) [V]
         Tacc.x += ay * Fz;
         Tacc.z += -ay * Fx;
       }
+    }
+    // B8b post-finish track braking (P+0x44) [V 0x6cd7ec]: F = factor·(km/h/240·0.125 + 0.15)·|vL|·Fext.y·v̂L at the
+    // same bottom-centre point. (The one-shot drag of P+0x28 at 0x6cd3d9, same shape × P+0x2c × 0.85, has no known
+    // setter and was never set in the traces: not ported.)
+    if (this.trackBraking > 0) {
+      const s = this.trackBraking * (this.speedKmh * (1 / 240) * 0.125 + 0.15) * this.Fext.y;
+      const Fx = vL.x * s;
+      const Fy = vL.y * s;
+      const Fz = vL.z * s;
+      Facc.x += Fx;
+      Facc.y += Fy;
+      Facc.z += Fz;
+      const ay = this.hullBottomCentreY();
+      Tacc.x += ay * Fz;
+      Tacc.z += -ay * Fx;
     }
     // B9 anti-roll torque (§2.7)
     {
@@ -1372,9 +1641,10 @@ export class CarSim implements ICarSim {
         Tacc.z += (rp.rollStiffness * ((W[3].ext - W[2].ext) * rp.springLength * 2 * (W[3].ny + W[2].ny))) / (x2 - x3);
       }
     }
-    // B10 chassis-ground collision (every other step, or every step while touching) + obstacles
-    if (this.stepParity === 0 || this.bodyOnGround) this.chassisCollision();
+    // B10 body solver (§2.9) [V FUN_006d0970]: on the car's turn or while a hull segment hit within the last 5 steps
+    if (this.stepParity === this.carIndex >> 1 || this.hullRecent) this.bodySolver(dt);
     this.obstacleCollision();
+    this.inBush = this.bushContact();
     // B11 yaw caps (§2.8)
     if (this.nContacts >= 2) {
       const lim = (2.75 - sf - absBeta) * p.twMaxMom * Iy;
@@ -1528,77 +1798,439 @@ export class CarSim implements ICarSim {
     return out;
   }
 
-  /** §2.9 hull points vs ground (DEV-4 impulse model [D]). */
-  private chassisCollision(): void {
-    const nPts = this.nContacts < 3 ? 12 : 8;
-    const world = this.world;
-    let touched = false;
-    let maxDepth = 0;
-    let cnx = 0;
-    let cny = 1;
-    let cnz = 0;
-    const rW = this.cRW;
-    const vP = this.cVP;
-    const n = this.cN;
-    for (let k = 0; k < nPts && k < this.hull.length; k++) {
-      this.toWorldTo(rW, this.hull[k]);
-      const Px = this.pos.x + rW.x;
-      const Py = this.pos.y + rW.y;
-      const Pz = this.pos.z + rW.z;
-      const h = world.heightAt(Px, Pz);
-      if (!Number.isFinite(h) || Py >= h) continue;
-      const nn = world.normalAt(Px, Pz);
-      const nl = nn ? Math.hypot(nn.x, nn.y, nn.z) : 0;
-      if (nl > 0 && Number.isFinite(nl)) setV(n, nn.x / nl, nn.y / nl, nn.z / nl);
-      else setV(n, 0, 1, 0);
-      const depth = (h - Py) * Math.max(0.05, n.y);
-      if (depth <= 0) continue;
-      touched = true;
-      const mat = world.materialAt(Px, Pz);
-      const sid = mat < MATERIAL_SOLID_MIN ? surfaceFromMaterial(mat) : null;
-      const sd = sid ? this.surfaces[sid] : null;
-      const bodyK = sd ? sd.bodyK : SOLID_BODY.bodyK;
-      const eps = sd ? sd.epsilon : SOLID_BODY.epsilon;
-      this.pointVel(vP, rW);
-      const vn = vP.x * n.x + vP.y * n.y + vP.z * n.z;
-      if (vn < 0) {
-        const e = BODY_RESTITUTION_K * eps; // [G] restitution
-        const jn = (-(1 + e) * vn) / this.effMassInv(rW, n);
-        this.applyImpulse(n.x * jn, n.y * jn, n.z * jn, rW);
-        this.damageFromImpulse(jn, rW);
-        // Coulomb friction, mu_body = BODY_FRICTION_K·BodyK (spec guess 0.5 [G], tuned, see BODY_FRICTION_K)
-        this.pointVel(vP, rW);
-        const vn2 = vP.x * n.x + vP.y * n.y + vP.z * n.z;
-        const vtx = vP.x - n.x * vn2;
-        const vty = vP.y - n.y * vn2;
-        const vtz = vP.z - n.z * vn2;
-        const vtl = Math.hypot(vtx, vty, vtz);
-        if (vtl > 1e-4) {
-          const t = this.cT;
-          setV(t, vtx / vtl, vty / vtl, vtz / vtl);
-          const jt = Math.min(BODY_FRICTION_K * bodyK * jn, vtl / this.effMassInv(rW, t));
-          this.applyImpulse(-t.x * jt, -t.y * jt, -t.z * jt, rW);
-        }
+  /**
+   * §2.9 hull probes [V FUN_006cea90 tail, 0x6ceda6-0x6cf5f3]. Points 0-3 every step; 4-11 only on this car's turn
+   * (P+0x90 == carIndex >> 1) or when their segment hit last time (mask P+0x9c); 12 points with < 3 wheel contacts,
+   * else 8; the belt points 4-7 additionally need body flag bit 2..5 (all set with < 3 wheel contacts, else corner
+   * state ≥ 2). Each point: the segment from the PREVIOUS step's COM (B+0xd8) to the hull point, slot 8 + i + 24·car.
+   * A hit with material ≠ −1, depth < 0.01 and < 4 contacts so far is a contact: Σ −depth·n (push direction), Σ −depth,
+   * the depth-weighted contact point, the smallest raw material; material > 23 sets flag 0x80 (a positive contact y is
+   * then ×0.2), 0x23 sets 0x100 and is not accumulated.
+   */
+  private hullProbes(nWheel: number): void {
+    const hull = this.hull;
+    const turn = this.stepParity === this.carIndex >> 1;
+    const nPts = Math.min(nWheel < 3 ? 12 : 8, hull.length);
+    let belt = 0;
+    if (nWheel < 3) belt = 0xf;
+    else for (let k = 0; k < 4; k++) if (this.cornerState[k] >= 2) belt |= 1 << k;
+    if (turn) this.hullMask = 0;
+    const o = this.prevPos;
+    const ray = this.ray;
+    const P = this.cRW;
+    let flags = 0;
+    let count = 0;
+    let nBottom = 0;
+    let nUpper = 0;
+    let minMat = 0x3f;
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    let sd = 0;
+    let any = false;
+    for (let i = 0; i < nPts; i++) {
+      if (i >= 4) {
+        if (!turn && !(this.hullMask & (1 << i))) continue;
+        if (i < 8 && !(belt & (1 << (i - 4)))) continue;
       }
-      if (depth > maxDepth) {
-        maxDepth = depth;
-        cnx = n.x;
-        cny = n.y;
-        cnz = n.z;
+      this.toWorldTo(P, hull[i]);
+      ray.x = this.pos.x + P.x - o.x;
+      ray.y = this.pos.y + P.y - o.y;
+      ray.z = this.pos.z + P.z - o.z;
+      const h = this.world.segment(o, ray, hullSlot(this.slotBase, i), this.segHit);
+      if (!h) continue;
+      const hn = h.normal;
+      const depth = h.depth ?? hn.x * (o.x + ray.x - h.point.x) + hn.y * (o.y + ray.y - h.point.y) + hn.z * (o.z + ray.z - h.point.z);
+      if (!Number.isFinite(depth + hn.x + hn.y + hn.z)) continue;
+      this.hullMask |= 1 << i;
+      any = true;
+      const mat = (h.origMaterial ?? origFromMaterial(h.material)) & 255;
+      if (mat === ORIG_NONE || !(depth < HULL_DEPTH_MAX) || count >= HULL_MAX_CONTACTS) continue;
+      if (mat > ORIG_GROUND_MAX) flags |= 0x80;
+      if (mat < minMat) minMat = mat;
+      if (mat === ORIG_SPECIAL) {
+        flags |= 0x100;
+        continue;
+      }
+      sx -= depth * hn.x;
+      sy -= depth * hn.y;
+      sz -= depth * hn.z;
+      sd -= depth;
+      this.hullIdx[count] = i;
+      this.hullDepths[count] = depth;
+      count++;
+      if (i < 4) nBottom++;
+      else nUpper++;
+    }
+    // P+0x94 / P+0x98: "a hull segment hit recently" keeps the body solver running every step for 5 more steps
+    if (any) {
+      this.hullQuiet = 0;
+      this.hullRecent = true;
+    } else if (this.hullQuiet > 4) this.hullRecent = false;
+    else {
+      this.hullQuiet++;
+      this.hullRecent = true;
+    }
+    this.bodyOnGround = false;
+    const l = Math.sqrt(sx * sx + sz * sz + sy * sy);
+    if (count >= 1 && l !== 0) {
+      this.bodyOnGround = true;
+      flags |= 1;
+      const inv = 1 / sd;
+      let cx = 0;
+      let cy = 0;
+      let cz = 0;
+      for (let k = 0; k < count; k++) {
+        const wgt = -this.hullDepths[k] * inv;
+        const hp = hull[this.hullIdx[k]];
+        cx += wgt * hp.x;
+        cy += wgt * hp.y;
+        cz += wgt * hp.z;
+      }
+      if (flags & 0x80 && cy > 0) cy *= 0.2;
+      setV(this.hullPt, cx, cy, cz);
+      const il = 1 / l;
+      setV(this.hullDir, sx * il, sy * il, sz * il);
+      this.hullDepth = -(sd / count);
+      this.hullMat = minMat;
+      if (nUpper < nBottom) flags |= 0x40;
+    }
+    this.hullFlags = flags;
+  }
+
+  /**
+   * The body columns (BodyK, BodyKScale, MaxDepth, Epsilon) of a raw original material for the body solver: the
+   * live surface table for 0..22, PhysicsParam.con's DUMMY row for 23, and "missing row → all columns 1.0"
+   * (FUN_006d5d00) above, exactly as the original's getter (vtbl+0x20 of DAT_009350bc) answers them.
+   */
+  private origSurface(mat: number): BodyColumns {
+    const sid = surfaceFromMaterial(materialFromOrig(mat));
+    return sid ? this.surfaces[sid] : mat === ORIG_DUMMY ? DUMMY_BODY : MISSING_BODY;
+  }
+
+  /**
+   * §2.9 body solver, a literal port of FUN_006d0970 (asm 0x6d0970-0x6d1a7b; the Ghidra pseudo-code is broken by
+   * x87 stack aliasing). ONE contact per step: the hull accumulation of hullProbes (point c body frame, push
+   * direction n world, mean depth d ≤ 0, smallest material). In order:
+   *   1. push-out: past the surface's MaxDepth the body moves by n·min(0.5, −d − MaxDepth) (else k = −d/MaxDepth
+   *      scales the impulse); non-ground materials (≥ 24) never push upward.
+   *   2. normal impulse jn = −Epsilon·k·min(0, BodyKScale·(vP·n)) / (1/m + |(I⁻¹(c×n)×c)·n|), vP = vW + ω×c with
+   *      the lagged ω (B+0x44); clamped to [0, 10000], its y to ≤ 8000 (or ≤ 500·clamp((2 − vy)/2) on non-ground
+   *      materials when moving up).
+   *   3. anchor friction, only when this contact continues the last one (anchor timer T < 0.2 s, n·n_last > 0.8): the
+   *      velocity D = (p_last − p_now)/(T + 0.001) − vP that brings the contact midpoint back to where it was, applied
+   *      as the Coulomb impulse BodyK·T·F along D̂ with F = −cos(c, n)·(the body's weight share along n + a side-tip
+   *      term 26.64·m·(1 − |n.y|)·s², s = how far n tips the car toward the contact side, ×|vL.z|/64 below 16 m/s),
+   *      only while the contact lies below the COM (cos(c, n) < −0.4); T restarts after it (and after 0.2 s).
+   * vW += (Jn + Jt)/m, L += c × Jn (body) + rcm × Jt.
+   * `obj`: the object contacts' solver FUN_006d21c0 (objectPass) — the same code on the object accumulation, with its
+   * own anchor timer B+0x138 (the anchor memory is shared) and Jt clamped to ±1000 per component before vW
+   * [V executed: tests/sim/fixtures/bodySolverObjCases.json]. Its B+0x19c goes to objSolveStrength.
+   */
+  private bodySolver(dt: number, obj = false): void {
+    let T: number;
+    if (obj) {
+      this.objSolveStrength = 0;
+      T = this.objT += dt;
+      if (!(this.objFlags & 1)) return;
+    } else {
+      this.bodyStrength = 0;
+      T = this.bsT += dt;
+      if (!(this.hullFlags & 1)) return;
+    }
+    const flags = obj ? this.objFlags : this.hullFlags;
+    const R = this.right;
+    const U = this.up;
+    const F = this.fwd;
+    const c = obj ? this.objPt : this.hullPt;
+    const dir = obj ? this.objDir : this.hullDir;
+    const nx = dir.x;
+    let ny = dir.y;
+    const nz = dir.z;
+    const d = obj ? this.objDepth : this.hullDepth;
+    const mat = obj ? this.objMat : this.hullMat;
+    const sd = this.origSurface(mat);
+    const bodyK = sd.bodyK;
+    // contact-point velocity, world (lagged body ω, as the original)
+    const w = this.w;
+    const ax = w.y * c.z - w.z * c.y;
+    const ay = w.z * c.x - w.x * c.z;
+    const az = w.x * c.y - w.y * c.x;
+    const vPx = this.vW.x + R.x * ax + U.x * ay + F.x * az;
+    const vPy = this.vW.y + R.y * ax + U.y * ay + F.y * az;
+    const vPz = this.vW.z + R.z * ax + U.z * ay + F.z * az;
+    if (mat > ORIG_GROUND_MAX && ny > 0) ny = 0;
+    // 1. push-out past MaxDepth
+    const maxDepth = sd.maxDepth;
+    let k: number;
+    if (-d < maxDepth) k = maxDepth === 0 ? 0 : -d / maxDepth;
+    else {
+      let pen = maxDepth + d;
+      if (pen < -BS_PUSH_MAX) pen = -BS_PUSH_MAX;
+      const corr = -pen;
+      this.pos.x += nx * corr;
+      this.pos.y += ny * corr;
+      this.pos.z += nz * corr;
+      k = 1;
+    }
+    // 2. normal impulse
+    let vn = (vPx * nx + vPy * ny + vPz * nz) * sd.bodyKScale;
+    if (vn > 0) vn = 0;
+    const J0 = -sd.epsilon * vn * k;
+    const nBx = R.x * nx + R.y * ny + R.z * nz;
+    const nBy = U.x * nx + U.y * ny + U.z * nz;
+    const nBz = F.x * nx + F.y * ny + F.z * nz;
+    const Xx = (c.y * nBz - c.z * nBy) * this.invI.x;
+    const Xy = (c.z * nBx - c.x * nBz) * this.invI.y;
+    const Xz = (c.x * nBy - c.y * nBx) * this.invI.z;
+    const Yx = Xy * c.z - Xz * c.y;
+    const Yy = Xz * c.x - Xx * c.z;
+    const Yz = Xx * c.y - Xy * c.x;
+    let jn = J0 / (Math.abs(Yx * nBx + Yy * nBy + Yz * nBz) + this.invMass);
+    // 3. anchor friction
+    let Jtx = 0;
+    let Jty = 0;
+    let Jtz = 0;
+    if (T >= BS_ANCHOR_T) T = 0;
+    else if (nx * this.bsPrevN.x + ny * this.bsPrevN.y + nz * this.bsPrevN.z > BS_ANCHOR_DOT) {
+      const mx = (c.x + this.bsPrevC.x) * 0.5;
+      const my = (c.y + this.bsPrevC.y) * 0.5;
+      const mz = (c.z + this.bsPrevC.z) * 0.5;
+      const pr = this.bsPrevR;
+      const pPx = mx * pr[0] + my * pr[3] + mz * pr[6] + this.bsPrevPos.x;
+      const pPy = mx * pr[1] + my * pr[4] + mz * pr[7] + this.bsPrevPos.y;
+      const pPz = mx * pr[2] + my * pr[5] + mz * pr[8] + this.bsPrevPos.z;
+      const rx = mx * R.x + my * U.x + mz * F.x;
+      const ry = mx * R.y + my * U.y + mz * F.y;
+      const rz = mx * R.z + my * U.z + mz * F.z;
+      const inv = 1 / (T + 0.001);
+      const Dx = (pPx - (rx + this.pos.x)) * inv - vPx;
+      const Dy = (pPy - (ry + this.pos.y)) * inv - vPy;
+      const Dz = (pPz - (rz + this.pos.z)) * inv - vPz;
+      const ir = 1 / Math.sqrt(ry * ry + rz * rz + rx * rx);
+      const cosRN = rx * ir * nx + ry * ir * ny + rz * ir * nz;
+      const D2 = Dz * Dz + Dy * Dy + Dx * Dx;
+      // the original adds the raw D as an impulse (≈ D/m, ≤ 1 mm/s) when the anchor test fails below [V asm 0x6d11d9]
+      Jtx = Dx;
+      Jty = Dy;
+      Jtz = Dz;
+      if (cosRN < BS_BELOW_COS && D2 !== 0) {
+        const iD = 1 / Math.sqrt(D2);
+        let N = -(nx * this.Fext.x + ny * this.Fext.y + nz * this.Fext.z) * this.bodyShare;
+        if (N < 0) N = 0;
+        let sR = -(R.x * nx + R.y * ny + R.z * nz);
+        if (c.x < 0) sR = -sR;
+        if (sR < 0) sR = 0;
+        let tip = (1 - Math.abs(ny)) * sR * sR * BS_TIP_K * this.mass;
+        const avz = Math.abs(this.vL.z);
+        if (avz < 16) tip *= avz * 0.015625;
+        const jt = -cosRN * (tip + N) * bodyK * T;
+        T = 0;
+        Jtx = Dx * iD * jt;
+        Jty = Dy * iD * jt;
+        Jtz = Dz * iD * jt;
+        if (mat >= ORIG_SOLID_MIN && Jty > 0) Jty = 0;
+        // torque rcm × Jt (world) into the body frame
+        const tx = ry * Jtz - rz * Jty;
+        const ty = rz * Jtx - rx * Jtz;
+        const tz = rx * Jty - ry * Jtx;
+        this.L.x += tx * R.x + ty * R.y + tz * R.z;
+        this.L.y += tx * U.x + ty * U.y + tz * U.z;
+        this.L.z += tx * F.x + ty * F.y + tz * F.z;
       }
     }
-    this.bodyOnGround = touched;
-    if (maxDepth > 0) {
-      // positional correction, 50 %/step [G] (deepest point; avoids over-correcting with many points)
-      const c = Math.min(maxDepth, 0.5) * 0.5;
-      this.pos.x += cnx * c;
-      this.pos.y += cny * c;
-      this.pos.z += cnz * c;
+    if (obj) this.objT = T;
+    else this.bsT = T;
+    setV(this.bsPrevN, nx, ny, nz);
+    copyV(this.bsPrevC, c);
+    copyV(this.bsPrevPos, this.pos);
+    const pr = this.bsPrevR;
+    pr[0] = R.x; pr[1] = R.y; pr[2] = R.z;
+    pr[3] = U.x; pr[4] = U.y; pr[5] = U.z;
+    pr[6] = F.x; pr[7] = F.y; pr[8] = F.z;
+    if (!(jn >= 0)) jn = 0;
+    if (jn > this.impact) this.impact = jn;
+    if (jn > STRENGTH_FLOOR) {
+      // B+0x19c, the record's hull strength (the object pass copies its own into the object record, 0x4a81c8)
+      if (obj) this.objSolveStrength = jn - STRENGTH_FLOOR;
+      else this.bodyStrength = jn - STRENGTH_FLOOR;
+    }
+    if (jn > BS_IMPULSE_MAX) jn = BS_IMPULSE_MAX;
+    const Jnx = nx * jn;
+    let Jny = ny * jn;
+    const Jnz = nz * jn;
+    if (this.vW.y <= 0 || Jny <= 0) {
+      if (Jny > BS_UP_MAX) Jny = BS_UP_MAX;
+    } else if (flags & 0x80) {
+      Jny *= clamp((2 - this.vW.y) * 0.5, 0, 1);
+      if (Jny > BS_UP_MAX_SOLID) Jny = BS_UP_MAX_SOLID;
+    }
+    // angular: c × Jn (body frame)
+    const jBx = R.x * Jnx + R.y * Jny + R.z * Jnz;
+    const jBy = U.x * Jnx + U.y * Jny + U.z * Jnz;
+    const jBz = F.x * Jnx + F.y * Jny + F.z * Jnz;
+    this.L.x += c.y * jBz - c.z * jBy;
+    this.L.y += c.z * jBx - c.x * jBz;
+    this.L.z += c.x * jBy - c.y * jBx;
+    if (obj) {
+      Jtx = clamp(Jtx, -BS_OBJ_JT_MAX, BS_OBJ_JT_MAX);
+      Jty = clamp(Jty, -BS_OBJ_JT_MAX, BS_OBJ_JT_MAX);
+      Jtz = clamp(Jtz, -BS_OBJ_JT_MAX, BS_OBJ_JT_MAX);
+    }
+    const im = this.invMass;
+    this.vW.x += im * (Jnx + Jtx);
+    this.vW.y += im * (Jny + Jty);
+    this.vW.z += im * (Jnz + Jtz);
+    if (this.params.damage.physical && jn > 0) {
+      this.toWorldTo(this.cRW, c);
+      this.damageFromImpulse(jn, this.cRW);
     }
   }
 
-  /** Vertical-cylinder obstacles (trees, rocks, posts) vs the hull footprint rectangle. [D] forgiving. */
+  /**
+   * The object pass (FUN_004a7bc0 static branch → FUN_006d1a80 → FUN_006d21c0) [V asm; ~ the car box / radius / centre
+   * come from the hull, the original's from the car geometry], run after the physics substep on worlds that carry the
+   * objects' own collision meshes (WorldQuery.objectCollidersNear; otherwise obstacleCollision's cylinders stand in):
+   *   1. candidates: refreshed every OBJ_REFRESH substeps (car k at counter 4k; cars ≥ 4 never), within
+   *      16·0.25 m + the car's radius, processed in descending order (the original sorts the pointers descending:
+   *      here by placement index) [~];
+   *   2. per object, the gate |origin − car| ≤ 0.2·radius + 1.5 (3-D) and the render box against the car's box;
+   *   3. FUN_006d1a80: EVERY hull point (no scheduling), the segment from the previous COM (B+0xd8) to the point
+   *      through the object's mesh (ObjectCollider.segment = 0x597810, slot −1); a hit is a contact when its depth
+   *      < 0.01 and fewer than 4 contacts so far, material = collisionMaterial (0..22) else 1; the accumulation of
+   *      hullProbes (push direction, depth-weighted point, mean depth, smallest material, 0x40); a zero push
+   *      direction ends the object here (no solver call);
+   *   4. FUN_006d21c0 (bodySolver(dt, true)), also with no contact (its timer runs, B+0x19c cleared);
+   *   5. a contact sets the object record: hit, collisionMaterial (raw), the solver's B+0x19c (0x4a81a3-0x4a81e8).
+   */
+  private objectPass(dt: number): void {
+    const world = this.world;
+    if (!world.objectCollidersNear || this.carIndex >= OBJ_MAX_CARS) return;
+    if (this.objStale || this.steps % OBJ_REFRESH === 4 * this.carIndex) {
+      this.objStale = false;
+      this.objList = world.objectCollidersNear(this.pos, OBJ_REFRESH * OBJ_REFRESH_STEP_M + this.carRadius, this.objList);
+      if (this.objList.length > 1) this.objList.sort((a, b) => b.object - a.object);
+    }
+    const list = this.objList;
+    if (!list.length) return;
+    const R = this.right;
+    const U = this.up;
+    const F = this.fwd;
+    const pos = this.pos;
+    const o = this.prevPos;
+    const ray = this.ray;
+    const P = this.cRW;
+    const hull = this.hull;
+    const hit = this.objHit;
+    const bMin = this.carBoxMin;
+    const bMax = this.carBoxMax;
+    for (let k = 0; k < list.length; k++) {
+      const ob = list[k];
+      // 2. gate (0x4a8008): the object's origin within 0.2·radius + 1.5 of the car (3-D)
+      const gx = ob.origin.x - pos.x, gy = ob.origin.y - pos.y, gz = ob.origin.z - pos.z;
+      const gr = ob.radius * OBJ_GATE_K + OBJ_GATE_M;
+      if (gx * gx + gy * gy + gz * gz - gr * gr > 0) continue;
+      // the render box's 8 corners in the car's frame, against the car box's 6 face planes (FUN_005d5fe0)
+      const m = ob.m;
+      let out = 0x3f;
+      for (let cI = 0; cI < 8 && out !== 0; cI++) {
+        const lx = cI & 1 ? ob.boxMax.x : ob.boxMin.x;
+        const ly = cI & 2 ? ob.boxMax.y : ob.boxMin.y;
+        const lz = cI & 4 ? ob.boxMax.z : ob.boxMin.z;
+        const wx = lx * m[0] + ly * m[3] + lz * m[6] + ob.origin.x - pos.x;
+        const wy = lx * m[1] + ly * m[4] + lz * m[7] + ob.origin.y - pos.y;
+        const wz = lx * m[2] + ly * m[5] + lz * m[8] + ob.origin.z - pos.z;
+        const bx = wx * R.x + wy * R.y + wz * R.z;
+        const by = wx * U.x + wy * U.y + wz * U.z;
+        const bz = wx * F.x + wy * F.y + wz * F.z;
+        let bits = 0;
+        if (bx < bMin.x) bits |= 1;
+        if (bx > bMax.x) bits |= 2;
+        if (by < bMin.y) bits |= 4;
+        if (by > bMax.y) bits |= 8;
+        if (bz < bMin.z) bits |= 16;
+        if (bz > bMax.z) bits |= 32;
+        out &= bits;
+      }
+      if (out !== 0) continue;
+      // 3. FUN_006d1a80: every hull point, segment previous COM → point through the object's mesh
+      const mat = ob.material >= 0 && ob.material <= OBJ_MAT_MAX ? ob.material | 0 : OBJ_MAT_DEFAULT;
+      let flags = 0;
+      let count = 0;
+      let nBottom = 0;
+      let nUpper = 0;
+      let minMat = 0x3f;
+      let sx = 0;
+      let sy = 0;
+      let sz = 0;
+      let sd = 0;
+      for (let i = 0; i < hull.length; i++) {
+        this.toWorldTo(P, hull[i]);
+        ray.x = pos.x + P.x - o.x;
+        ray.y = pos.y + P.y - o.y;
+        ray.z = pos.z + P.z - o.z;
+        if (!ob.segment(o, ray, hit)) continue;
+        const depth = hit.depth;
+        const hn = hit.normal;
+        if (!Number.isFinite(depth + hn.x + hn.y + hn.z)) continue;
+        if (!(depth < HULL_DEPTH_MAX) || count >= HULL_MAX_CONTACTS) continue;
+        if (mat > ORIG_GROUND_MAX) flags |= 0x80;
+        if (mat < minMat) minMat = mat;
+        if (mat === ORIG_SPECIAL) {
+          flags |= 0x100;
+          continue;
+        }
+        sx -= depth * hn.x;
+        sy -= depth * hn.y;
+        sz -= depth * hn.z;
+        sd -= depth;
+        this.hullIdx[count] = i;
+        this.hullDepths[count] = depth;
+        count++;
+        if (i < 4) nBottom++;
+        else nUpper++;
+      }
+      if (count > 0) {
+        const l = Math.sqrt(sz * sz + sy * sy + sx * sx);
+        if (l === 0) continue;
+        const inv = 1 / sd;
+        let cx = 0;
+        let cy = 0;
+        let cz = 0;
+        for (let q = 0; q < count; q++) {
+          const wgt = -this.hullDepths[q] * inv;
+          const hp = hull[this.hullIdx[q]];
+          cx += wgt * hp.x;
+          cy += wgt * hp.y;
+          cz += wgt * hp.z;
+        }
+        if (flags & 0x80 && cy > 0) cy *= 0.2;
+        setV(this.objPt, cx, cy, cz);
+        const il = 1 / l;
+        setV(this.objDir, sx * il, sy * il, sz * il);
+        this.objDepth = -(sd / count);
+        this.objMat = minMat;
+        flags |= 1;
+        if (nUpper < nBottom) flags |= 0x40;
+      }
+      this.objFlags = flags;
+      // 4. FUN_006d21c0
+      this.bodySolver(dt, true);
+      // 5. the object collision record (car record +0x30 / +0x34 / +0x38): the latest hit wins
+      if (count > 0) {
+        this.objectHits++;
+        this.objectType = ob.material;
+        this.objectStrength = this.objSolveStrength;
+      }
+    }
+  }
+
+  /**
+   * Vertical-cylinder obstacles (trees, rocks, posts) vs the hull footprint rectangle. [D] forgiving. The stand-in for
+   * worlds without the objects' own collision meshes (procedural stages, RCOL v1); with them objectPass collides.
+   */
   private obstacleCollision(): void {
+    if (this.world.objectCollidersNear) return;
     const p = this.params;
     const zf = p.hullFrontZ;
     const zr = p.hullRearZ;
@@ -1678,6 +2310,10 @@ export class CarSim implements ICarSim {
       const vn = vP.x * n.x + vP.z * n.z;
       if (vn < 0) {
         const jn = (-(1 + OBSTACLE_RESTITUTION) * vn) / this.effMassInv(rW, n, OBSTACLE_ANGULAR);
+        // the object collision record (car record +0x30 / +0x34 / +0x38, FUN_004a7bc0 0x4a81a3): the latest hit wins
+        this.objectHits++;
+        this.objectType = obstacleMaterial(ob);
+        this.objectStrength = jn > STRENGTH_FLOOR ? jn - STRENGTH_FLOOR : 0;
         this.applyImpulse(n.x * jn, 0, n.z * jn, rW, OBSTACLE_ANGULAR);
         this.damageFromImpulse(jn, rW);
         this.pointVel(vP, rW);
@@ -1696,6 +2332,32 @@ export class CarSim implements ICarSim {
       this.pos.x += n.x * c;
       this.pos.z += n.z * c;
     }
+  }
+
+  /**
+   * Bush contact (the collision record's +0x28, set by the object pass FUN_004a7bc0 at 0x4a86b8): the car centre
+   * within 2 m (horizontal) of a soft object (WorldQuery.softNear: hasCollision without a collision mesh) and inside
+   * its box. The box test uses the proxy's footprint radius and height (the original transforms the point into the
+   * object's bbox) [~]. The original's one-shot drag of that flag (P+0x28 × P+0x2c = collisionElasticConstant, 0x6cd3d9)
+   * is not ported (MECHANICS_SPEC §2.7).
+   */
+  private bushContact(): boolean {
+    const w = this.world;
+    if (!w.softNear) return false;
+    const list = w.softNear(this.pos, 0, this.softBuf);
+    if (!list || list.length === 0) return false;
+    this.softBuf = list;
+    for (const o of list) {
+      const dx = o.pos.x - this.pos.x;
+      const dz = o.pos.z - this.pos.z;
+      const d2 = dx * dx + dz * dz;
+      const r = Math.min(BUSH_REACH_M, o.radius);
+      if (!(d2 <= r * r)) continue;
+      const h = o.height > 0 ? o.height : 1;
+      if (this.pos.y < o.pos.y - 1 || this.pos.y > o.pos.y + h + 1) continue;
+      return true;
+    }
+    return false;
   }
 
   /** §5.6 damage from a collision impulse (only when damage.physical). [D] mapping. */
@@ -1960,6 +2622,15 @@ export class CarSim implements ICarSim {
       yawRateCapActive: this.yawRateCap,
       parked: this.parked,
       impactImpulse: fin(this.impact),
+      collision: {
+        hull: (this.hullFlags & 1) !== 0,
+        hullMaterial: this.hullMat,
+        hullStrength: fin(this.bodyStrength),
+        objectHits: this.objectHits,
+        objectType: this.objectType,
+        objectStrength: fin(this.objectStrength),
+        bush: this.inBush,
+      },
       posSim: { x: fin(this.pos.x), y: fin(this.pos.y), z: fin(this.pos.z) },
       quatSim: { w: fin(q.w), x: fin(q.x), y: fin(q.y), z: fin(q.z) },
       velSim: { x: fin(this.vW.x), y: fin(this.vW.y), z: fin(this.vW.z) },

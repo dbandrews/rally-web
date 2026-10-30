@@ -42,17 +42,35 @@
 import type { BuiltStage, StageListEntry } from '../core/types';
 import { buildProcStage } from './builder';
 import { catalogueEntry, RECIPES, STAGE_ORDER } from './stageDefs';
+import { buildPortedStage } from './portedBuilder';
+import { PORTED_META, PORTED_ORDER, PORTED_RECIPES } from './portedDefs';
 
 export type { StageLabel } from './builder';
 export type { WorldEnvironment, EnvironmentPalette } from './environments';
 
+function portedEntry(id: string): StageListEntry {
+  const m = PORTED_META[id];
+  return {
+    id: m.id,
+    name: m.name,
+    discipline: m.discipline,
+    description: m.description,
+    defaultTyre: m.defaultTyre,
+    approxLength: m.approxLength,
+    closed: m.closed,
+    laps: m.laps,
+  };
+}
+
 export function listStages(): StageListEntry[] {
-  return STAGE_ORDER.map((id) => catalogueEntry(id));
+  return [...STAGE_ORDER.map(catalogueEntry), ...PORTED_ORDER.map(portedEntry)];
 }
 
 export function buildStage(id: string, seed = 1): BuiltStage {
-  const recipe = RECIPES[id];
-  if (!recipe) throw new Error(`unknown stage '${id}' (known: ${STAGE_ORDER.join(', ')})`);
   const s = Number.isFinite(seed) ? Math.floor(seed) >>> 0 : 1;
-  return buildProcStage(recipe(), s);
+  const recipe = RECIPES[id];
+  if (recipe) return buildProcStage(recipe(), s);
+  const ported = PORTED_RECIPES[id];
+  if (ported) return buildPortedStage(ported(), s);
+  throw new Error(`unknown stage '${id}' (known: ${[...STAGE_ORDER, ...PORTED_ORDER].join(', ')})`);
 }

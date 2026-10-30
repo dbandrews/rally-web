@@ -158,3 +158,47 @@ describe('Autopilot', () => {
     expect(c2.gearUp).toBe(false); // one-substep edge + cooldown
   });
 });
+
+describe('autopilot obstacle avoidance (optional world)', () => {
+  it('steers round a colliding object on the centre line and back to the line after it', () => {
+    const stage = makeLineStage({ startS: 10, width: 10 });
+    // a 1.5 m object on the centre line at s = 60 (sim z = +60: three z = -60)
+    const obstacle = { kind: 'tent', pos: { x: 0, y: 0, z: 60 }, radius: 1.5, height: 3 };
+    const world = {
+      obstaclesNear: (p: { x: number; z: number }, r: number, out: unknown[] = []) => {
+        out.length = 0;
+        if (Math.hypot(p.x - obstacle.pos.x, p.z - obstacle.pos.z) < r + obstacle.radius) out.push(obstacle);
+        return out;
+      },
+    } as unknown as import('../../src/core/types').WorldQuery;
+    const car = new FakeCar();
+    const race = new RaceController({ store: new MemoryStore() });
+    race.begin(stage, car, { countdown: false });
+    race.startNow();
+    const ap = new Autopilot();
+    ap.world = world;
+    let minGap = Infinity;
+    for (let i = 0; i < Math.round(12 / DT); i++) {
+      const c = ap.update(DT, car.telemetry(), stage, race.state);
+      car.step(c, DT);
+      race.fixedUpdate(DT, car.telemetry());
+      minGap = Math.min(minGap, Math.hypot(car.pos.x - 0, -car.pos.z - 60));
+    }
+    expect(race.state.s).toBeGreaterThan(120);
+    expect(minGap).toBeGreaterThan(1.5 + 0.8);
+    expect(Math.abs(car.pos.x)).toBeLessThan(1.5); // back near the centre line
+    // without the world it drives straight through the object's place
+    const car2 = new FakeCar();
+    const race2 = new RaceController({ store: new MemoryStore() });
+    race2.begin(stage, car2, { countdown: false });
+    race2.startNow();
+    const ap2 = new Autopilot();
+    let minGap2 = Infinity;
+    for (let i = 0; i < Math.round(12 / DT); i++) {
+      car2.step(ap2.update(DT, car2.telemetry(), stage, race2.state), DT);
+      race2.fixedUpdate(DT, car2.telemetry());
+      minGap2 = Math.min(minGap2, Math.hypot(car2.pos.x, -car2.pos.z - 60));
+    }
+    expect(minGap2).toBeLessThan(0.5);
+  });
+});

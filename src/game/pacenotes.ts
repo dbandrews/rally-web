@@ -1,9 +1,13 @@
 /**
  * src/game/pacenotes.ts — game builder. §5.7 pacenote triggering.
  *
- * Each physics step the LAST note with note.s ≤ playerS fires once if it has not been played and the car is
- * within |lateral| < 20 m of the centre line. Purely positional (no speed look-ahead). Notes are never
- * replayed after a reset (the reset marks everything up to the reset point as played).
+ * Each physics step the LAST note with note.s ≤ playerS fires once if it has not been played; it is marked
+ * played first and only spoken when the car is within |lateral| < 20 m of the centre line (FUN_0074b620: a
+ * note passed 20 m+ off the road is lost, not deferred). Purely positional (no speed look-ahead). Notes are
+ * never replayed after a reset: a reset keeps the played flags (only a restart clears them, FUN_0074b680) and
+ * every note the car passed was marked when it became the last passed one. Stage notes are
+ * sorted by s (the ported original lists are reduced to their reachable notes, src/world/portedPacenotes.ts,
+ * so the binary search equals the original's backward scan over the file order).
  */
 import { PACENOTE_LATERAL_M } from '../core/constants';
 import type { Pacenote } from '../core/types';
@@ -54,8 +58,8 @@ export class PacenoteCaller {
     if (this.notes.length === 0) return null;
     const i = this.lastIndexAt(s + this.leadM);
     if (i < 0 || this.played[i]) return null;
-    if (Math.abs(lateral) >= PACENOTE_LATERAL_M) return null;
     this.played[i] = true;
+    if (Math.abs(lateral) >= PACENOTE_LATERAL_M) return null;
     return this.notes[i];
   }
 

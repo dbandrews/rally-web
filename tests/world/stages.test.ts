@@ -6,6 +6,13 @@ import { describe, expect, it } from 'vitest';
 import { MATERIAL_NONE, SURFACE_IDS } from '../../src/core/constants';
 import type { BuiltStage, PacenoteModifier, Stage } from '../../src/core/types';
 import { buildStage, listStages } from '../../src/world/stages';
+import { PORTED_DATA, PORTED_ORDER } from '../../src/world/ports';
+import { portedRaceSettings } from '../../src/world/portedBuilder';
+import { PORTED_META } from '../../src/world/portedDefs';
+import { origCentreFacts } from './portedBounds';
+
+/** True for a PORTED original stage (src/world/ports): catalogue id family-<layout>-<dir>. */
+const isPorted = (id: string): boolean => id in PORTED_DATA;
 
 function digest(st: Stage): string {
   let h = 2166136261;
@@ -37,10 +44,16 @@ const get = (id: string): { b: BuiltStage; ms: number } => {
 };
 
 describe('catalogue', () => {
-  it('lists the seven original stages, a real stage first and the testpad', () => {
+  it('lists the seven original stages first, then the 48 ported originals in order', () => {
     const l = listStages();
-    expect(l.map((s) => s.id)).toEqual(['pine-ridge', 'col-du-vent', 'frostvale', 'red-basin', 'kettle-park', 'lake-skoga', 'testpad']);
-    expect(l.map((s) => s.name)).toEqual(['Pine Ridge', 'Col du Vent', 'Frostvale', 'Red Basin', 'Kettle Park', 'Lake Skoga', 'Proving Ground']);
+    expect(l.slice(0, 7).map((s) => s.id)).toEqual(['pine-ridge', 'col-du-vent', 'frostvale', 'red-basin', 'kettle-park', 'lake-skoga', 'testpad']);
+    expect(l.slice(7).map((s) => s.id)).toEqual([...PORTED_ORDER]);
+    expect(l.slice(0, 7).map((s) => s.name)).toEqual(['Pine Ridge', 'Col du Vent', 'Frostvale', 'Red Basin', 'Kettle Park', 'Lake Skoga', 'Proving Ground']);
+    // ported: "<Family> <layout> (<Forward|Reverse>)" from the archive name, one per archive
+    expect(l.slice(7).map((s) => s.name)).toEqual(PORTED_ORDER.map((id) => PORTED_META[id].name));
+    expect(l.find((s) => s.id === 'hillclimb-3a-r')!.name).toBe('Hillclimb 3A (Reverse)');
+    expect(l.find((s) => s.id === 'newzealand-2-f')!.name).toBe('New Zealand 2 (Forward)');
+    expect(new Set(l.map((s) => s.name)).size).toBe(l.length);
     const kp = l.find((s) => s.id === 'kettle-park')!;
     expect(kp.closed && kp.laps === 3 && kp.discipline === 'rallycross').toBe(true);
     const ls = l.find((s) => s.id === 'lake-skoga')!;
@@ -54,7 +67,9 @@ describe('catalogue', () => {
   it('stage lengths are close to the catalogue lengths', () => {
     for (const e of listStages()) {
       const { b } = get(e.id);
-      expect(Math.abs(b.stage.length - e.approxLength) / e.approxLength).toBeLessThan(0.15);
+      // approxLength is the TIMED length: one lap closed, start line → finish point-to-point.
+      const timed = e.closed ? b.stage.length : b.stage.finishS - b.stage.startS;
+      expect(Math.abs(timed - e.approxLength)).toBeLessThan(e.approxLength * (isPorted(e.id) ? 0.02 : 0.15));
     }
   });
 });
@@ -75,7 +90,8 @@ describe.each(listStages().map((s) => [s.id, s] as const))('stage %s', (id, entr
     const hf = b.stage.heightfield;
     expect(hf.nx * hf.nz).toBeLessThanOrEqual(400_000);
     expect(hf.cellSize).toBeGreaterThanOrEqual(2);
-    expect(hf.cellSize).toBeLessThanOrEqual(3.5);
+    // ported big tracks (7 km safari roads) legitimately need coarser cells within the vertex budget
+    expect(hf.cellSize).toBeLessThanOrEqual(isPorted(id) ? 5 : 3.5);
     // the road (with a margin) is inside the heightfield
     const x1 = hf.originX + (hf.nx - 1) * hf.cellSize;
     const z1 = hf.originZ + (hf.nz - 1) * hf.cellSize;
@@ -94,8 +110,9 @@ describe.each(listStages().map((s) => [s.id, s] as const))('stage %s', (id, entr
     expect(st.heightfield.materials.every((m) => m !== MATERIAL_NONE)).toBe(true);
     for (const r of st.road) {
       expect(finite(r.s, r.width, r.bank, r.pos.x, r.pos.y, r.pos.z, r.left.x, r.left.y, r.left.z, r.right.x, r.right.y, r.right.z)).toBe(true);
-      expect(r.width).toBeGreaterThan(5.5);
-      expect(r.width).toBeLessThan(16);
+      // the original's real roads: 6-16 m rally stages, 15-25 m circuits, wide ice tracks
+      expect(r.width).toBeGreaterThan(isPorted(id) ? 4.5 : 5.5);
+      expect(r.width).toBeLessThan(isPorted(id) ? 45 : 16);
     }
     for (const sc of st.scenery) {
       expect(finite(sc.pos.x, sc.pos.y, sc.pos.z, sc.rotY, sc.scale, sc.radius, sc.height)).toBe(true);
@@ -119,7 +136,8 @@ describe.each(listStages().map((s) => [s.id, s] as const))('stage %s', (id, entr
       const e = Math.abs(pr.lateral) - st.roadAt(pr.s).width / 2 - sc.radius;
       expect(e).toBeGreaterThan(2.95);
     }
-    expect(colliding).toBeGreaterThan(id === 'testpad' ? 20 : 100);
+    // ported lap circuits can be under a kilometre: density, not a flat count
+    expect(colliding).toBeGreaterThan(isPorted(id) ? 25 : id === 'testpad' ? 20 : 100);
   });
 
   it('has a drivable start on a straight, and well-formed timing', () => {
@@ -129,15 +147,57 @@ describe.each(listStages().map((s) => [s.id, s] as const))('stage %s', (id, entr
       return { x: v.x / l, z: v.z / l };
     };
     const t0 = hor(st.tangentAt(st.startS));
+    // ported stages start where the original's start line is: on the real road, which may already be
+    // bending (corsica 3R turns 20° within 30 m of its line) — the port turns no more than the archive
+    // centre spline does there (its analytic tangent at the same 3-D arc lengths)
+    const orig = isPorted(id) ? origCentreFacts(id) : null;
+    const o0 = orig?.tangentAt(st.startS);
     for (const ds of [-15, 15, 30]) {
       const t = hor(st.tangentAt(st.startS + ds));
-      expect(t.x * t0.x + t.z * t0.z).toBeGreaterThan(0.99);
+      if (orig && o0) {
+        const o = orig.tangentAt(st.startS + ds);
+        expect(t.x * t0.x + t.z * t0.z).toBeGreaterThan(o.x * o0.x + o.z * o0.z - 1e-3);
+      } else expect(t.x * t0.x + t.z * t0.z).toBeGreaterThan(0.99);
     }
+    // and the start line's direction is the original's
+    if (o0) expect(t0.x * o0.x + t0.z * o0.z).toBeGreaterThan(0.99999);
     const sp = st.project(st.startPose.pos);
     expect(Math.abs(sp.lateral)).toBeLessThan(0.1);
+    // the start pose faces the stage where the car waits (ported: the original's spawn grid, which may lie
+    // up to 37 m past the start line, docs/orig/race.md §1)
     const d0 = hor(st.startPose.dir);
-    expect(d0.x * t0.x + d0.z * t0.z).toBeGreaterThan(0.999);
-    if (st.closed) {
+    const tw = hor(st.tangentAt(sp.s));
+    expect(d0.x * tw.x + d0.z * tw.z).toBeGreaterThan(0.999);
+    if (!isPorted(id)) expect(d0.x * t0.x + d0.z * t0.z).toBeGreaterThan(0.999);
+    if (isPorted(id)) {
+      // the original's event triggers: start line + timed splits + finish (laps: 2 per lap)
+      const rs = portedRaceSettings(PORTED_DATA[id], st.length);
+      expect(st.startS).toBeCloseTo(rs.startS, 6);
+      expect(st.finishS).toBeCloseTo(rs.finishS, 6);
+      const trig = PORTED_DATA[id].triggers;
+      expect(st.checkpoints.length).toBe(st.closed ? trig.length - 1 : trig.length - 2);
+      if (st.closed) {
+        // lap circuits: the archive's lap line sits anywhere on the loop (iceracing 1F starts 1629 m into
+        // a 1738 m loop) and its split distances run on from it, so a split can lie past the loop's
+        // s = 0 — on the track it is still inside the lap: exactly the archive's distance after the line
+        const L = st.length;
+        expect(st.startS).toBeGreaterThanOrEqual(0);
+        expect(st.startS).toBeLessThan(L);
+        st.checkpoints.forEach((c, k) => {
+          expect(c).toBeGreaterThanOrEqual(0);
+          expect(c).toBeLessThan(L);
+          const rel = (((c - st.startS) % L) + L) % L;
+          expect(rel).toBeCloseTo(trig[k + 1] - trig[0], 6);
+          expect(rel).toBeGreaterThan(0);
+          expect(rel).toBeLessThan(L);
+        });
+      } else {
+        for (const c of st.checkpoints) {
+          expect(c).toBeGreaterThan(st.startS);
+          expect(c).toBeLessThan(st.finishS);
+        }
+      }
+    } else if (st.closed) {
       expect(st.startS).toBe(0);
       expect(st.finishS).toBe(0);
       expect(st.checkpoints.length).toBe(2);
@@ -159,7 +219,22 @@ describe.each(listStages().map((s) => [s.id, s] as const))('stage %s', (id, entr
       return;
     }
     const notes = st.pacenotes;
-    expect(notes.length).toBeGreaterThan(10);
+    expect(notes.length).toBeGreaterThan(isPorted(id) ? 9 : 10);
+    if (isPorted(id)) {
+      // the original's notes (PaceNotes.con, tests/world/ported.test.ts): sorted, the 1-6 scale, a direction
+      // per bend word; their call point lies ≈ 100-125 m before the bend (direction agreement is pooled there)
+      for (let i = 0; i < notes.length; i++) {
+        const n = notes[i];
+        if (i > 0) expect(n.s).toBeGreaterThan(notes[i - 1].s);
+        expect(n.s).toBeLessThanOrEqual(n.cornerS);
+        expect(n.text.length).toBeGreaterThan(0);
+        expect(n.origWords!.length).toBeGreaterThan(0);
+        expect(['left', 'right', 'straight']).toContain(n.direction);
+        expect(n.direction === 'straight').toBe(n.severity === 0);
+        for (const m of n.modifiers) expect(MODS).toContain(m);
+      }
+      return;
+    }
     for (let i = 0; i < notes.length; i++) {
       const n = notes[i];
       if (i > 0) expect(n.s).toBeGreaterThan(notes[i - 1].s);
@@ -267,7 +342,8 @@ describe('stage features', () => {
     }
     const present = new Set<number>();
     for (const m of stage.heightfield.materials) present.add(m);
-    for (let m = 0; m < SURFACE_IDS.length; m++) expect(present.has(m)).toBe(true);
+    // the original ten surfaces (ids 0..9); the appended original materials (10..22) have no pad patch
+    for (let m = 0; m < 10; m++) expect(present.has(m), SURFACE_IDS[m]).toBe(true);
     const labels = (stage as Stage & { labels?: { text: string }[] }).labels ?? [];
     expect(labels.length).toBeGreaterThanOrEqual(9);
     expect(stage.scenery.filter((s) => s.kind === 'cone').length).toBeGreaterThan(10);

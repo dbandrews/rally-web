@@ -37,13 +37,16 @@ export function wrapDelta(ds: number, L: number): number {
  *  - point-to-point: checkpoints (s > startS) then the finish at finishS.
  *  - closed: per lap the checkpoints (relative to the lap line) then the lap line; the last lap line is the
  *    finish. When the start grid sits shortly behind the lap line (< half a lap), the first crossing only
- *    starts lap 1 and is not a gate.
+ *    starts lap 1 and is not a gate. Checkpoint indices count in LAP order (distance after the lap line),
+ *    not by spline s: a lap line part-way round the loop puts the splits past s = 0 first (the original's
+ *    lap triggers run on from trigger 0, FUN_0048c060; iceracing 1F's split lies past the loop's s = 0).
+ *    Each gate's index then matches the order it is crossed in (state.nextCheckpoint, the split popups).
  */
 export function buildGates(stage: GateStage): TimingGate[] {
   const gates: TimingGate[] = [];
   if (stage.discipline === 'testpad') return gates;
-  const cps = [...stage.checkpoints].sort((a, b) => a - b);
   if (!stage.closed) {
+    const cps = [...stage.checkpoints].sort((a, b) => a - b);
     cps.forEach((s, i) => {
       const d = s - stage.startS;
       if (d > 0.5 && s < stage.finishS) gates.push({ dist: d, kind: 'checkpoint', lap: 1, index: i });
@@ -53,18 +56,21 @@ export function buildGates(stage: GateStage): TimingGate[] {
   }
   const L = stage.length;
   const laps = Math.max(1, Math.floor(stage.laps || 1));
+  // lap order: distance after the lap line, duplicates (and splits on the line itself) dropped
+  const rels = [...new Set(stage.checkpoints.map((s) => mod(s - stage.finishS, L)))]
+    .filter((rel) => rel > 0.5 && rel < L - 0.5)
+    .sort((a, b) => a - b);
   const df = mod(stage.finishS - stage.startS, L);
   // route distance of the first lap COMPLETION
   const base = df < 1e-6 ? L : df < 0.5 * L ? df + L : df;
   for (let lap = 1; lap <= laps; lap++) {
     const end = base + (lap - 1) * L;
     const lapStart = end - L;
-    cps.forEach((s, i) => {
-      const rel = mod(s - stage.finishS, L);
+    rels.forEach((rel, i) => {
       const d = lapStart + rel;
-      if (rel > 0.5 && rel < L - 0.5 && d > 0.5) gates.push({ dist: d, kind: 'checkpoint', lap, index: i });
+      if (d > 0.5) gates.push({ dist: d, kind: 'checkpoint', lap, index: i });
     });
-    gates.push({ dist: end, kind: lap === laps ? 'finish' : 'lap', lap, index: cps.length });
+    gates.push({ dist: end, kind: lap === laps ? 'finish' : 'lap', lap, index: rels.length });
   }
   gates.sort((a, b) => a.dist - b.dist);
   return gates;
