@@ -159,8 +159,10 @@ mesh only. An independent re-implementation over `.cache/original/*/Mesh/Track.g
 ## 7. Best times and ghosts
 
 Keyed by the original car (`begin(…, { origCar })`, RaceSelection.car) or else the archetype:
-`rally-web:best:v2:<stage>:<seed>:<car>` / `rally-web:ghost:v2:…` (unchanged format; `BestRecord.car`). The ghost's
-CarRenderState carries `origCar`.
+`rally-web:best:v2:<stage>:<seed>:<car>` (`BestRecord.car`) and `rally-web:ghost:v3:…` (the best run as the original's 3.0 ghost file,
+base64; the v2 30 Hz JSON is no longer read). The ghost is tick-driven from GO (15 Hz frames, 8 ticks each, one-tick lag), raced with
+the ghost file's car (CarRenderState.origCar), selectable in the menu (best run / team / saved) and savable by name; the player's
+the team ghosts' split times fit gates that sit a constant per stage later than the port's (an unresolved [I] reading of the data, docs/orig/ghosts.md §4). Everything about it: docs/orig/ghosts.md.
 
 ## 8. Autopilot on the original worlds
 
@@ -192,6 +194,134 @@ procedural ported world (`?collision=0`, original road materials) all finish wit
 mesh runs except hillclimb-1c-f (3.9 s faster; likely the original service-park object proxies, §8, which only the
 collision part provides). The 7 procedural stages pass too (`--stages procedural`).
 
+## 9a. Multi-car race (ai-race builder, phase 2)
+
+Source files: `src/game/grid.ts`, `src/game/ai/roster.ts`, `src/game/ai/standings.ts`, `src/game/field.ts` (`CarField`),
+`src/ui/menuAi.ts` / `src/ui/hudAi.ts`, `src/audio/orig/otherCars.ts`; proofs `tests/game/{grid,roster,field,fieldUi}.test.ts`,
+`tests/audio/otherCars.test.ts`; browser acceptance `tools/ai-race.mjs` (screenshots in `artifacts/phase2/ai-race/`).
+Tags as everywhere: **[E]** exe-verified, **[D]** data-verified, **[I]** inferred.
+
+### 9a.1 The start grid [E: executed]
+
+The placement loop is in **FUN_00484640** (not in the Ghidra dump; read from the disassembly, loop **0x4847e0-0x484cff**).
+It creates one **SpawnPoint** object per participant (class string 0x8479ec "SpawnPoint"; index at obj+0x80, euler / basis at
++0x64 / +0x70, position set through the component's vt+0x2c, registered with the race's container [ebp+0x6c8] vt+0xc) from the
+race.spawnGrid triple {`s`, `lateral`, `spacing`} (race config vt+0x108 → floats). `count` = participant records
+((end − begin) / 0x188 at race+0x118/+0x11c, magic-multiply division) **minus race+0x110** (the number of ghost cars: a ghost
+takes no slot, so solo + ghost is still the centre-line start) [E]. With `i` = 0 … count − 1:
+
+* `s_i = s − floor(i / 2) · spacing`, `+ spline length` when it goes below 0 (`fadd [esp+0x50]` after `fcomp 0.0`, 0x484c1c-0x484c35).
+  The odd car steps `s` back **after** it was placed, so cars 2k and 2k+1 share a row.
+* The position is `P(s_i)` (spline vt+0x18, centre line) displaced by `∓ lateral · T`, **T = (d.z, d.y, −d.x)** in the original's
+  (sim) frame, `d` = unit(P(s_i + 1 m) − P(s_i)) (the same `d` that gives the heading; `s_i + 1` wraps by the length only when it
+  exceeds it). T is the car's own right axis (Frida run 1: car right = (fwd.z, 0, −fwd.x)) **including the climb term d.y**: the
+  offset is `lateral·cos(pitch)` across and `lateral·d.y` up (≤ 0.3 m on the steepest hill climb; the ground lift decides the height).
+* **Even i: −T (the LEFT column), odd i: +T (the RIGHT column)** (0x484bc6 `test bl,1`: odd adds `T·lateral` 0x484bcb-0x484c11, even
+  subtracts 0x484c3b-0x484c7d). Count 1 (`cmp [esp+0x58],1; jbe`, 0x484bbb) skips the displacement: the centre line.
+* The heading is the solo one (a function of `d` only, computed before the column branch).
+
+Proof: `research/tools/grid_emu.py` runs the **real machine code** 0x484761-0x484d05 in unicorn (real vector helpers 0x57d050 /
+0x407660 / 0x407690 / 0x4076f0 / 0x407710 / 0x407630 / 0x708dd0 and the CRT acos / asin; only the spline, the race config and the
+spawn-point object are stubs) on 220 random windy / climbing splines, spawnGrids (incl. s < spacing) and counts 1-4: **546 slots,
+worst |Δpos| 4.8e-4 m** (a float32 ulp at 2000 m), fixture `tests/game/fixtures/gridEmu.json`, replayed through
+`gridSimPose` in `tests/game/grid.test.ts`. Port: `gridSlot(grid, i, count, stage)` (s, ∓lateral), `gridSimPose` (sim pose with the
+T climb term); `RaceController.gridS / gridPose` (player = grid index 0) and `CarField.begin` (AI cars 1..3) use them.
+All 48 ported stages × 1-4 cars (test): every slot within the road half width minus half a car, no two slots closer than a
+car length across a car width, the player on the front row, rows inside the spline range (hillclimb-3a-f: spawn 54, range 48, row 1
+exactly at the range minimum; the field's range check has a 0.5 m slack for it), the only spawn below one row spacing is the
+circuit iceracing-2-f (s = 5: rows 2 / 3 wrap to length − 1, behind the start line as in the exe).
+**Which grid index the player takes: 0 [I]** (the participant list is built player-first: FUN_00488590 0x488795-0x4887fd loops
+the 4 human controller slots before any AI car is appended; the exe has no other ordering code). The port: player left column
+front row, AI 1 right front, AI 2 left second row, AI 3 right second row. An open stage whose row would go below s = 0 clamps
+at 0 instead of wrapping to the finish (never happens in the 48 stages) [I].
+
+### 9a.2 Roster [D] / rule [I]
+
+`Misc/events/*.txt` (22 files, every one `CarCount = 4`, `OpponentCount = 3`, all four `Car =` lines in ONE class of the exe's
+AI name table 0x847928: 36 pointers = 6 groups of 6, 29 names, FUN_00488590 0x488d2e-0x488d52 maps car name → group → the
+AIAttributeManager slot [E]). The 4 cars are the player's choices of the class; the other 3 start. All 48 ported stages lie in
+1-5 events [D]. Port rule (`buildRosterInfo`): the stage's event = the first (code order) whose `Car`/`BonusCar` list holds the
+player's car, else the first whose class is the player's car's class, else the first; opponents = its `Car =` list minus the
+player's car in list order, a seeded draw (seed ^ stage id) when fewer than 3 are asked for (list order kept), topped up from the
+name table class when short; a stage in no event (the procedural ones) has no opponents; ids `ai1..ai3`, grid index 1..3,
+face-cache `slotBase = 24·gridIndex`. Skill (+0x50, `AIAttributeManager` vt+0x48..0x70) and tyre scale (+0xb4: 0.75 / 0.8 /
+1.0 / 1.2 / 1.25 by tyre type, set only on the HUMAN participant's branch, 0x488c9b-0x488cb1) are **1.0 [I]**: the manager's
+group values are in no data file; `AiOpponentSpec.skill / tyreScale` is the seam for the ai-brain builder.
+
+### 9a.3 Shared countdown, clock, tracking, finish [I on top of the player's rules]
+
+The AI cars are parked (`CarSim.setParked`) from `field.begin` until `field.afterStep` sees the player's phase `running`
+(the substep `RaceController.startNow` ran in), in the same substep as the player, and their clock is `steps · DT` from that
+substep (equal to `RaceState.time` while the player runs, continuing after the player's finish). Route distance, gates and the
+20 m trigger rule are the player's (`timing.ts`; `Stage.project(pos, hintS)` per substep); an AI car crossing the finish gate
+gets the stage's post-finish track braking and rolls out under the player's run-out controller (`driving.ts`, no object scan,
+refreshed every 4th substep).
+**After the player finishes** the AI cars keep racing; the standings are final when every AI car has finished or
+`POST_FINISH_LIMIT_S` = 90 s after the player's finish (the rest are DNF, ranked by distance). The results screen shows the table
+at its 1.6 s mark with the unfinished cars "racing · N m back"; it follows the field live (the `data-live` table) until they
+finish. The original runs the same tracker FUN_004b4170 for every participant [E]; its end-of-race rule for AI participants was
+not traced [I].
+Standings (`ai/standings.ts`): finished first by finish time, then by route distance, ties by grid index [I].
+
+### 9a.4 Recovery (the "AI stuck rule", open item 12) [I]
+
+No AI-specific stuck rule exists outside the controller's own state machine (ai.md §5.6: crawling with a target speed > |v| for 3 s
+→ stop → three-point turn, in the driver). The field adds the player's hand-of-god rules (FUN_004b3e50 numbers [E]: |lateral| > 30 m,
+heightOffset < −5 m, outside the spline range) and the player's [D] stuck rules (upside down 2.5 s, < 3 km/h with a pedal pressed
+10 s) with an instant teleport (no fade): back 20 m on the centre line (in place for flipped / stuck), 100 settle steps, event `aiReset`; the driver is not
+reset (its race-progress base is the `lapDist` of its first update, ai-brain's AiTimes / overtake bookkeeping; its own state
+machine recovers from a standstill). Nothing is checked before GO.
+
+### 9a.5 Rendering, audio, UI
+
+* Renderer: the AI cars are `addCar(id, archetype, { ai: true, player: false, origCar, carIndex })` (render slots
+  `24·carIndex + wheel`, ai.md §9 [E]): original mesh and livery, wheel effects, never the camera target. The model LOD: the
+  original fixes it per car from the video-quality table (`playercarlodlevel` / `othercarlodlevel`, FUN_00694f50 parses
+  `viewdistance` / `playercarlodlevel` / `othercarlodlevel` into a 0x1c-stride record at +0x100; FUN_00491ce0 applies it): the table is
+  a user-settings file that is in no archive, so the levels are not decodable [E that they exist, nothing on their values].
+  `setCarLod(id, level)` forces a set; the default for every car, AI included, stays the camera-distance LOD (docs/orig/cars.md).
+* Audio: one `CarSoundPlayer(sys, bank, car, human = false)` per AI car = the SoundAI "Simple" set (Engine, Pipe, EngineThrottle,
+  WheelSlipX, Whine, Collision: 6 of the player's 20 scripts [D]), emitter = the car's sim pose and velocity (pan, distance, Doppler by
+  the backend), own `CarInputMapper`. The car-car record (FUN_00746c80 0x746d3a-0x746d6d [E]: flag +0x3c → type 1, strength +0x40, Hard
+  patch from strength 5) is wired through `CollisionTelemetry.carHits / carStrength` for every car, the player's included.
+  The synthesised fallback has no AI voices.
+* Menu: row "Opponents" None / 1 / 2 / 3 (default 3 = every event's OpponentCount; `?ai=` and the test API keep 0); HUD: position
+  "n / N", the standings strip (name, gap in metres to you, finish times), the opponents' markers on the progress bar; results:
+  the standings table.
+
+### 9a.6 Acceptance (tools/ai-race.mjs --real, stepped, 4 cars, the ported AI controller; artifacts/phase2/ai-race/)
+
+* `node tools/ai-race.mjs --real`: 89 checks, all ok, **0 console errors / warnings**, the driver `placeholder === false`.
+  corsica-1-f, hillclimb-1a-f, iceracing-1-f, rallycross-1-f: 4 cars on the grid (original meshes / liveries), parked and still
+  through the 3 s countdown, the player's autopilot vs 3 AI cars to the end of the race: every AI car finishes (corsica-1-f
+  1:27.116 / 1:30.826 / 1:39.324, hillclimb-1a-f 1:58.6-2:04.5, iceracing-1-f 3:48.5-3:56.4, rallycross-1-f 4:09.1-4:11.6 vs the
+  autopilot's 3:02.9 / 3:19.3 / 9:36.0 / 7:37.5), standings = finish order with gaps, `getField()` = the HUD ("n / N", the strip, the
+  bar markers) at every sample, the results card lists the field. AI resets: 1 on corsica-1-f (`belowTrack`, 1338 m), 0 elsewhere.
+* Two fresh stepped runs of 25 s give the same AI positions / speeds / pedals bit for bit.
+* Round trips: reloading the stage keeps exactly the roster in the renderer; `opponents: 0` drops every AI sim and renderer
+  car; a stage change rebuilds the roster once.
+* Contact (sim-contact merged): an AI car charging a stationary player is registered (`carHits` 27 → 43, the sound path),
+  nobody passes through (minimum centre distance 2.33 m).
+* Perf (headless SwiftShader, quiet machine): 20 s of sim after GO, autopilot: solo 5.8 ms per simulated second, 4 cars (3 real
+  AI controllers, 3 car sims, contacts) 15.1 ms (x2.6, about 66x real time); a rendered frame of the whole scene 16-18 ms (software
+  GL) either way. No per-substep allocation in `CarField` (tests: object identity of every view).
+* Solo regression: `node tools/all-stages.mjs --jobs 6 --shots 0` 48 / 48 ok (two runs, 24 stages each, 0 resets), `npm run smoke`
+  ok, `npx vitest run` 74 files green, `npx tsc --noEmit` clean.
+
+### 9a.7 Car-car contact and the AI rubber band (integration)
+
+* **Contact**: after every car has stepped, `stepCarContacts([player, ...AI])` runs FUN_004a7980's pair loop (i, then j >= i, self pair
+  skipped, `collidable`) with the body solver FUN_006d4390 on each car's own `Car_<Name>.col` hull (18 points, 10 planes). It writes the car-car
+  collision record on both cars; the audio reads `carHits` (type 1 Hard, threshold 5, one impact per 0.5 s, sound.md 7). Proof and the
+  deviations (object-pass interleave, float64 near-ties): MECHANICS_SPEC Appendix D, research/formats/dynamics.md 7.1.
+* **Rubber band**: `CarField` passes the human's route distance (`dist`, metres from the start line, continuous over laps) to every AI driver as
+  `leaderLapDist`. The AI refresh (FUN_00607280) compares it with the car's own distance and multiplies the curve speed by 0.65 / 0.75 / 0.85
+  when the car is more than 800 / 400 / 200 m ahead of it (docs/orig/ai.md 5). The human as owner of the mailbox 0x8e5a84 is **[I]** (best
+  fit of the Frida run). The multiplication is in place and only a post carrying a curve-speed scale resets it, so the driver ignores the
+  mailbox when the stage has no AiData posts.
+* A fast AI field therefore waits for a slow human: on corsica-1-f a 3:03 autopilot run sees the AI finish in 1:52 (against 1:27-1:39 when the
+  mailbox is fed from the AiTimes schedule only).
+
 ## 10. Not done / open
 
 * The original's spline-distance function was not traced: whether it extrapolates past the spline end (hillclimb1cr's
@@ -200,4 +330,4 @@ collision part provides). The 7 procedural stages pass too (`--stages procedural
   3,2,1 / go! patches, not by code).
 * race.distance (a float console variable; reader not traced) and race+0xa0c (trigger 0 − 1) are not ported.
 * The splineRange → player +0x174 link is INFERRED (§3).
-* The pre-running road-edge lateral check (+0x6f) and the AI stuck rule are not ported.
+* The pre-running road-edge lateral check (+0x6f) is not ported. The AI stuck rule: no AI-specific rule found, the port's rule is §9a.4 [I].

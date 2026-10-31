@@ -14,6 +14,8 @@
  *
  * WHEEL ORDER everywhere (§1.1): 0 = front-left, 1 = front-right, 2 = rear-right, 3 = rear-left.
  */
+import type { FieldEvent, FieldSnapshot, OtherCarFrame } from './field';
+import type { GhostListEntry, GhostSelection } from './ghosts';
 import type { V3 } from './math';
 import type { SimQuat, SimV3, ThreeQuat, ThreeV3 } from './space';
 
@@ -612,6 +614,10 @@ export interface ObjectCollider {
   /** Bounding sphere (centre SIM, radius m) of the scaled render box. */
   readonly pos: SimV3;
   readonly radius: number;
+  /** The geometry is a TreeMesh (it answers the colour interface): the object pass tests it only while the car is
+   *  within 0.2·radius + 1.5 of its ORIGIN (the trunk); otherwise (absent / false) while the bounding spheres
+   *  overlap (docs/orig/collision.md §4.1). */
+  readonly treeMesh?: boolean;
   /** Render box, local frame (unscaled), and the transform rows (local → SIM, row vectors v·m + origin, scale
    *  included): the box corners for the object pass's overlap test. */
   readonly boxMin: SimV3;
@@ -733,6 +739,14 @@ export interface CarSimOptions {
    * an ORIG_CAR_IDS name (RaceSelection.car). Absent / null / unknown = the archetype's §3.4 box.
    */
   origCar?: string | null;
+  /**
+   * AI friction mode (MECHANICS_SPEC §4.2; research/formats/ai.md §10): the car is an AI opponent (the original's
+   * RallyCar byte +0x17 = 1, phys+0xcc bit 0): the tarmac ASPHALT tyre rows on EVERY surface and
+   * frictionLevel = min(FL, 0) (rows copied at 0x6c4978-0x6c49ac, the clamp at 0x6cb6cb). Default false (the player
+   * and the ghost keep the real surface table). Implemented in src/sim/car.ts (region "AI friction (phase 2)"):
+   * the car keeps a private copy of the surface table, so the player's table is never touched.
+   */
+  aiFriction?: boolean;
 }
 
 /** Per-wheel values for the renderer. */
@@ -814,6 +828,12 @@ export interface CollisionTelemetry {
   objectStrength: number;
   /** Inside a bush this step (record +0x28). Mesh worlds with soft objects only (WorldQuery.softNear). */
   bush: boolean;
+  /** PHASE 2 (car-car contact, dynamics.md §7): the car-car record +0x3c/+0x40. `carHits` counts the substeps in which
+   *  FUN_006d4390 found a contact with another car (a consumer latches on a change, like `objectHits`); `carStrength`
+   *  = this car's B+0x19c after the latest car-car contact (sound.md §7: type 1, threshold 5). Absent = never set
+   *  (solo races). Written by src/sim/contact.ts (sim-contact builder); read by the audio mapper (ai-race builder). */
+  carHits?: number;
+  carStrength?: number;
 }
 
 /**
@@ -955,6 +975,14 @@ export interface ICarSim {
   setWorld(world: WorldQuery): void;
   /** Pre-start hold (§1.4 S.parked): clutch open, all wheels EngineBrakeConstant; sleep allowed. */
   setParked(parked: boolean): void;
+  /**
+   * Car-car contact (src/sim/contact.ts `stepCarContacts`): the live rigid-body view the contact solver reads and
+   * writes (a `ContactBody`; typed `unknown` here because src/core must not import src/sim). A sim without it is
+   * silently ignored by the contact step. CarSim implements it.
+   */
+  contactBody?(): unknown;
+  /** Include / exclude this car from car-car contacts (the original's `collidable` flag; default true). */
+  setCollidable?(on: boolean): void;
   /** Frozen cars skip step() entirely (§1.5). */
   setFrozen(frozen: boolean): void;
   /**
@@ -1289,6 +1317,19 @@ export type RaceEvent =
   | { type: 'pacenote'; note: Pacenote }
   | { type: 'wrongWay'; on: boolean };
 
+/** Options of IRaceController.begin. */
+export interface RaceBeginOptions {
+  countdown: boolean;
+  world?: WorldQuery;
+  origCar?: string;
+  /** PHASE 2: the player's grid slot (0) and the number of cars on the grid (player + AI; 1 = solo, the default).
+   *  With gridCount 1 the car stands on the spawn grid's centre line exactly as before (src/game/grid.ts). */
+  gridIndex?: number;
+  gridCount?: number;
+  /** PHASE 2: which ghost to race against (RaceSelection.ghost; absent = the stored best run, as before). */
+  ghost?: GhostSelection;
+}
+
 /**
  * Race controller (src/game/race.ts `RaceController`, constructor `new RaceController()`).
  * Owns phases, clock, checkpoints/laps/finish, §5.4 resets (manual + auto "hand of god"), §5.7 pacenote
@@ -1302,7 +1343,7 @@ export interface IRaceController {
    *  `world` (optional, the stage's WorldQuery): spawn / reset heights use world.heightAt when given.
    *  `origCar` (optional, RaceSelection.car): best times / the ghost are keyed by it when present (else by the
    *  archetype), and the ghost's CarRenderState carries it. */
-  begin(stage: Stage, car: ICarSim, opts: { countdown: boolean; world?: WorldQuery; origCar?: string }): void;
+  begin(stage: Stage, car: ICarSim, opts: RaceBeginOptions): void;
   /** Skip menu/intro/countdown: phase → 'running' now, clock 0, car unparked. */
   startNow(): void;
   /** Whether player inputs should reach the car this substep (§5.1 "not controllable" otherwise). */
@@ -1389,6 +1430,11 @@ export interface AddCarOptions {
    *  is hidden while it loads and shows only when absent / not built / failed. The player car also brings its
    *  own camera positions (Templates.con <Car>CarCamera, MECHANICS_SPEC §5.3). */
   origCar?: string;
+  /** PHASE 2: an AI opponent (src/core/field.ts): rendered at the original's `othercarlodlevel` (ai.md §9), never
+   *  the camera target, with wheel effects. Not a ghost. */
+  ai?: boolean;
+  /** PHASE 2: the car's grid index (the player 0; render slots 24·carIndex + wheel, ai.md §9). */
+  carIndex?: number;
 }
 
 /**
@@ -1402,6 +1448,10 @@ export interface CarRenderState {
   origCar?: string;
   ghost: boolean;
   player: boolean;
+  /** PHASE 2: an AI opponent (AddCarOptions.ai). Absent = false. */
+  ai?: boolean;
+  /** PHASE 2: grid index (AddCarOptions.carIndex). */
+  carIndex?: number;
   /** Interpolated THREE-space body origin and orientation. */
   pos: ThreeV3;
   quat: ThreeQuat;
@@ -1435,6 +1485,8 @@ export interface IGameRenderer {
    *  the procedural fallback decided). main.ts awaits it with the stage load: no stand-in is ever shown. */
   addCar(id: string, archetype: ArchetypeId, opts?: AddCarOptions): void | Promise<void>;
   removeCar(id: string): void;
+  /** PHASE 2: force a car's model LOD level (othercarlodlevel / playercarlodlevel, ai.md §9); null = renderer's choice. */
+  setCarLod?(id: string, level: number | null): void;
   /** Render one frame. `alpha` = physics interpolation fraction (cars are already interpolated). */
   update(frameDt: number, alpha: number, cars: readonly CarRenderState[]): void;
   setCameraMode(mode: CameraMode): void;
@@ -1493,6 +1545,12 @@ export interface FrameContext {
   /** The player car's backfire / blow-out flags of this frame (the shared source, CarFlags; the same object the
    *  renderer gets in CarRenderState.carFlags). Absent = consumers derive their own. */
   carFlags?: Readonly<CarFlags>;
+  /** PHASE 2: the AI opponents' live per-frame views (audio: their Simple sound set; HUD). Absent / empty = solo. */
+  others?: readonly OtherCarFrame[];
+  /** PHASE 2: standings + AI car states (HUD position, results). Absent = solo. */
+  field?: Readonly<FieldSnapshot>;
+  /** PHASE 2: field events since the previous frame (an AI car finished, was reset, …). */
+  fieldEvents?: readonly FieldEvent[];
 }
 
 /** HUD (src/ui/hud.ts `Hud`, `new Hud(root: HTMLElement)`): speed/rpm/gear/boost gauge, clock, progress bar
@@ -1521,6 +1579,10 @@ export interface RaceSelection {
   setup: Partial<SetupParams>;
   steerSensFast: boolean;
   seed: number;
+  /** PHASE 2: AI opponents on the grid, 0..MAX_OPPONENTS (src/core/field.ts). Absent = 0 (a solo race, as before). */
+  opponents?: number;
+  /** PHASE 2: the ghost to race against (src/core/ghosts.ts). Absent = the stored best run (`{ source: 'best' }`). */
+  ghost?: GhostSelection;
 }
 
 export interface ArchetypeInfo {
@@ -1568,6 +1630,16 @@ export interface IMenuHost {
   /** Sound on/off (menu row; the M key toggles it in game). */
   setAudioEnabled(on: boolean): void;
   isAudioEnabled(): boolean;
+  /** PHASE 2 ghost host (ghosts builder; main.ts delegates to RaceController). The selectable ghosts of a stage: the
+   *  shipped team ghosts and the player's saved ones (the stored best run is `{ source: 'best' }`, not listed). */
+  listGhosts?(stageId: string): Promise<GhostListEntry[]>;
+  /** Save the session-best run of the loaded stage + car under `name` (the original's SAVE GHOST); false = refused
+   *  (no best run yet, invalid name, storage full). */
+  saveSessionGhost?(name: string): Promise<boolean>;
+  /** Delete a saved (user) ghost. */
+  deleteGhost?(id: string): Promise<void>;
+  /** Is there a run to save (a finished valid run this session)? */
+  canSaveGhost?(): boolean;
 }
 
 /** Main / pause / results menu (src/ui/menu.ts `Menu`, `new Menu(root: HTMLElement, host: IMenuHost)`). */
@@ -1686,6 +1758,8 @@ export interface LaunchOptions {
   audio: boolean;
   /** ?ghost=0 hides the best-run ghost car. */
   ghost: boolean;
+  /** PHASE 2: ?ai=0..3 AI opponents on the grid (default 0 here; the menu's Opponents row has its own default). */
+  opponents?: number;
 }
 
 /** Short stage description for the test API. */
@@ -1711,6 +1785,10 @@ export interface LoadStageOptions {
   transmission?: Transmission;
   /** Start with countdown (default false for the API: phase stays 'idle' until startRace()). */
   countdown?: boolean;
+  /** PHASE 2: AI opponents (0..3, default 0 = solo). */
+  opponents?: number;
+  /** PHASE 2: the ghost to race against (default: the stored best run). */
+  ghost?: GhostSelection;
 }
 
 /** window.__rally.probe(): where the car is relative to the ground and the road (agent health checks). */
@@ -1796,4 +1874,24 @@ export interface RallyTestApi {
   /** The race events (RaceEvent: countdown, go, checkpoint, finish, reset with its reason, pacenote, ...) since the
    *  last call, oldest first; main.ts keeps at most the latest 1000 between calls. */
   getRaceEvents(): RaceEvent[];
+  /** PHASE 2: the AI field: car states, standings, the player's position (empty when solo). */
+  getField(): FieldSnapshot;
+  /** PHASE 2: the ghost cars in play: id, original car, source, pose (THREE) and whether it is moving (empty = none). */
+  getGhosts(): GhostInfo[];
+}
+
+/** window.__rally.getGhosts(): one ghost car in play (RaceController.ghostInfos). */
+export interface GhostInfo {
+  id: string;
+  source: 'best' | 'team' | 'user';
+  /** Ghost name (driver) and the original car it drives (the ghost file's template minus "Ghost"). */
+  name: string;
+  origCar: string | null;
+  /** Total time of the ghost's run (s). */
+  time: number;
+  /** Frames (15 Hz grid for the exe layout) / the playback tick (120 Hz, from GO) / frozen at the end. */
+  frames: number;
+  tick: number;
+  finished: boolean;
+  pos: ThreeV3;
 }

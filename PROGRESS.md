@@ -4,7 +4,7 @@
 sounds, and the same look (the original meshes, textures, liveries, sky, lighting, water, UI). `original_version/`
 is our own game (`AGENTS.md`), so its assets are in scope, apart from the third-party content listed under
 "Legal caveats". The 7 procedural stages stay as the handling lab and the no-assets fallback. Status as of
-2026-10-30 (final integration pass).
+2026-10-31 (phase 2 integrated: AI opponents, ghosts, car-car contact, railings).
 
 **Legend:** ✅ done · 🟡 done with open items · ⬜ not started
 
@@ -14,7 +14,7 @@ is our own game (`AGENTS.md`), so its assets are in scope, apart from the third-
 npm install
 npm run dev                       # http://localhost:5173 (procedural visuals until the assets are built)
 
-# original assets (needs original_version/, not in git) → public/assets/ (gitignored, ~1.1 GB)
+# original assets (needs original_version/ to rebuild) → public/assets/ (tracked in git, ~1.1 GB; the CI deploy ships it)
 uv venv .venv && uv pip install -r tools/assets/requirements.txt     # once: numpy + Pillow
 npm run assets                    # all phases: 48 stages, 29 cars, global audio + effects
 npm run assets -- --stages kenya-1-f --parts track,objects           # rebuild only what changed
@@ -23,6 +23,7 @@ npm run assets -- --list          # parts, stage ids, car names
 npm run assets -- --selftest      # pipeline self-check (~15 s)
 ```
 
+New or rebuilt files under `public/assets/` must be `git add`ed before deploying (see the phase-2 repo note in section 13).
 Never `--clean` or delete `public/assets` to rebuild one part: rebuild only the parts you changed. Details:
 `docs/ASSETS.md`.
 
@@ -61,6 +62,7 @@ sweep in the real game), `tools/render-stage-shots.mjs`, `tools/drive.mjs` (`--q
 | 10. Sim fidelity | ✅ | `src/sim/`; docs/MECHANICS_SPEC.md v1.5 |
 | 11. Menus / UI | 🟡 | `src/ui/menu.ts`, `hud.ts` (HTML UI with original names, icons, sounds) |
 | 12. Movies | ⬜ | `original_version/Movies/*.bik` |
+| 13. Phase 2: AI opponents, ghosts, car-car contact, railings | ✅ ported, 🟡 inferred values (section 13) | `src/game/{ai,ghosts,field,grid}*`, `src/sim/contact*`, `parts/{ai,ghosts}.py`; docs/PHASE2_AI.md, docs/orig/{ai,ghosts}.md |
 
 ### 1. Asset pipeline ✅
 
@@ -94,6 +96,8 @@ sweep in the real game), `tools/render-stage-shots.mjs`, `tools/drive.mjs` (`--q
 * Static objects: the original's object pass FUN_004a7bc0 → FUN_006d1a80 on the objects' own CollisionMesh.Simple
   meshes (82 190 instances, geometry scale applied, query 0x597810 ported), contacts through FUN_006d21c0 / the body
   solver. Bushes set the bush flag (`softNear`). The `obstaclesNear` cylinders are now only autopilot hints.
+* Railings fixed (phase 2): the object pass gates only TreeMesh instances on the tight trunk radius and every other mesh object on its
+  bounding sphere [E 0x4a7fb3], so fences, walls and rails are hit anywhere along their span (docs/orig/collision.md 4.1).
 * Open: loose parts (6 559 cones, signs, barrels) are not collided; the car's object-pass box is approximated from
   its 12 hull points.
 
@@ -178,6 +182,61 @@ garage, most `LocaleEnglish.rff` strings, the HUD art.
 
 `original_version/Movies/*.bik` (29 files) not transcoded. MsIntro / DiceIntro need clearance first (below).
 
+### 13. Phase 2: AI opponents, ghosts, car-car contact, railings 🟡
+
+Scope of the round (the user's choice): AI opponents, ghosts including the shipped team ghosts, and the railing collisions. Plan, ownership,
+decisions and the final state: `docs/PHASE2_AI.md` (section 0). Specs: `docs/orig/ai.md`, `docs/orig/ghosts.md`, `docs/orig/race.md` 9a,
+`docs/MECHANICS_SPEC.md` Appendix D, `docs/orig/collision.md` 4.1. Tags: **[E]** exe-verified, **[D]** data-verified, **[I]** inferred.
+
+**AI opponents (ported)**
+* The original controller: low level FUN_007e0540, per frame FUN_00607280 / 00607ae0 / 00609550, run at the game's 24-bit x87 precision
+  (`src/game/ai/{ctrl,aicar,driver,aidata}.ts`). Proof **[E]**: executed in unicorn, 6 000 controller vectors and 3 200 per-frame cases
+  bit-identical. Against the Frida runs (open loop) throttle / brake bands match on about 76-78 % of steps and steering on 54 % (limit-cycle
+  phase); the AI tyre-friction mode matches to a one-step |v| error of 7e-7.
+* Data **[D]**: asset part `ai` = the 804 AiData posts / 39 827 samples of the 48 stages (`stages/<id>/ai.json`) and the AiTimes schedule
+  (`global/ai.json`).
+* Race: the original start grid (FUN_00484640, executed in unicorn **[E]**, 546 slots, 4.8e-4 m), roster from the career events (3 opponents, as
+  every original event), `CarField` (tracking, laps, finish, recovery, standings), HUD position box and strip, results table, per-car SoundAI
+  voices, menu Opponents row (`None / 1 / 2 / 3`, `?ai=0..3`; disabled without an event or without the assets).
+* Played to the finish in the browser, 3 AI each: corsica, hillclimb, rallycross and ice racing, 0 AI resets; AI cars scrape railings but do not
+  break through (0 resets, |lateral| at most 7.8 m on 3 stages). A solo AI car finishes 46 of 48 stages.
+* Inferred **[I]**: AI skill per car and the difficulty-to-tyre-scale map are 1.0 (not in any data file; the Frida recording fits 0.70-0.75), the
+  spin-recovery trigger (+0x54) is undecoded (`AiDriverX.setRecovery` exists and nobody calls it), the human as owner of the rubber-band mailbox
+  (a slow human makes the AI finish about 1:52 against 1:27-1:39 without the feed), and the player's grid index (0, left column, front row).
+
+**Ghosts (ported)**
+* The exe's 2.0 / 3.0 file format (`src/game/ghosts/format.ts`): all 30 team ghosts / 39 710 frames decode with 0 mismatches, 317 440 playback
+  ticks bit-exact, 3 030 encode cases byte-identical **[E]**. Tick-exact player (FUN_004db730) and recorder (FUN_004db540).
+* The 30 shipped team ghosts on 26 stages (asset part `ghosts`, `global/ghosts.json` + `global/ghosts/*.bin`), saved ghosts (IndexedDB, with a
+  memory fallback only when the database cannot be opened; a quota error on a write now reports "not enough space"), SAVE GHOST / Delete, the menu
+  Ghost row (Off / Best run / team ghost / saved), the best run kept as a 3.0 file. A hold frame at index 0 plays one period, as in the original
+  (research/formats/ghosts.md 3.3 **[E]**).
+* Inferred **[I]**: the ghost's look (alpha 0.35, environment-only pass), that it is first drawn at GO (the exe plays it in race state 5; whether a
+  parked ghost is drawn before GO is undecoded). Unresolved: the team-ghost start offsets (1.6-24 m from the centre-line pose, not multiples of
+  the 6 m row spacing) are not explained by any grid slot, so how the original times the split triggers for a ghost is open; the port keeps the
+  stage's gate positions.
+
+**Car-car contact (ported)**: FUN_004a7980's pair loop and the body solver FUN_006d4390 / 6d4fd0 / 6d5240 on the real 18-point `Car_<Name>.col`
+hulls (`src/sim/contact*`). 8 000 unicorn cases / 3 928 contacts 0 mismatches; the Frida run-2 trace's 271 contacts agree to 2.7e-4 m/s **[E]**.
+Writes the car-car collision record the impact sound reads. The race logic now reads the telemetry after the contact step (as the original runs its
+race logic after contacts; a stale-read bug found in QA, fixed with a regression test).
+
+**Railings (fixed)**: the object pass has two gate branches in the exe (0x4a7fb3): only TreeMesh instances use the tight trunk radius, every other
+mesh object gates on its bounding sphere **[E]**, so fences, walls and rails are hit anywhere along their span (docs/orig/collision.md 4.1).
+Proof: 41 % -> 0.26 % pass-through of wall-like faces over 77 350 independent drives; a regression test drives a real Micra at 40 and 140 km/h
+into the middle of a panel on 6 families (hillclimb-3a-f, kenya-1-f, newzealand-1-f, rallycross-1-f, iceracing-3-f, corsica-3-r) on the built
+collision packs and requires the car to be held at the face (a mutation check with the old single-branch gate fails 10 of 12). A QA matrix of 48
+browser drives found 0 crossings when each pair of trace positions was tested against every nearby triangle. The rest of what the matrix showed
+(a hard launch at the corsica-3-r bank, a car lying against a rail with a rising hit counter) is the bank geometry and the original's per-substep
+object record, not a railing defect (docs/orig/collision.md 4.1); a Frida trace of the original would settle the launch **[I]**.
+
+**Verified**: see "Verification (2026-10-31)" below.
+
+**Repo note (do before deploying)**: `public/assets/` is tracked in git (the CI deploy ships it, and CI runs `npm test` on the checkout). The
+phase-2 parts are new, untracked files: `stages/<id>/ai.json` x48, `global/ai.json`, `global/ghosts.json`, `global/ghosts/*.bin` x30 (80 files),
+plus the modified manifest and `collision.{bin,json}` of all stages. `git add` them, or the deployed game races solo (the field logs one info
+line and starts without opponents), has no team ghosts, and the manifest test and two `ai` part tests fail in CI.
+
 ## Corrections to earlier notes
 
 * `fogzor.rff` is **TrackFogSettings** (the per-stage low-detail fog scripts the environment resolver loads first),
@@ -188,6 +247,15 @@ garage, most `LocaleEnglish.rff` strings, the HUD art.
 * `original_version/Sound/Music/` holds **14** WAVs, not 13: the exe's tables reference 11 (10 in-game, of which 3
   are also the menu table, plus 1 pre-race); the three Big Idea tracks are referenced by no table.
 * The live gamma delta is the stage's scripted `trackGammaDelta`, not 0 (environment.md §5).
+
+## Research from a stopped spec round (unverified, for future rounds)
+
+A spec round for the next scope (menu art, replays, movies, damage) was stopped part way. Its partial output is in the tree and is **unverified**:
+notes and dumps `research/formats/meme.md`, `meme_*.json` (classes, bindings, fonts, load order, dump), `dynamics.md`, `replay.md`
+(+ `replay_dump.json`, `replay_tvcam_cases.json`), `movies.md` (+ `movies_dump.json`), `damage_dump.json`; extraction and analysis scripts
+`research/tools/*` (e.g. `fmt_meme.py`, `fmt_anim.py`, `fmt_bink.py`, `damage_survey.py`, `anim_census.py`); and format readers
+`tools/assets/lib/formats/{fmt_meme,fmt_anim,fmt_font,fmt_bink,fmt_replay}.py` (not wired into `build.py`). Treat the claims as leads, re-check
+against the exe before relying on them. (`dynamics.md` 6-7 was used and verified for the car-car contact; the rest was not.)
 
 ## Legal caveats (clear before any public build)
 
@@ -201,8 +269,35 @@ garage, most `LocaleEnglish.rff` strings, the HUD art.
   the hillclimb-3b-f start).
 * **Movies**: `MsIntro.bik` and `DiceIntro.bik` are publisher / studio intros.
 * `vite build` copies the built `public/assets/` (~1.1 GB, including all of the above except the music) into
-  `dist/`. The GitHub Pages workflow builds without assets, so the published site is procedural only. Clear the
-  items above before shipping a build with the original assets.
+  `dist/`. Since commit 933bf35 `public/assets/` is tracked in git and the GitHub Pages workflow (push to main)
+  deploys it, so a push publishes the original assets with the third-party content above. Clear the items above
+  before pushing.
+
+## Verification (2026-10-31, final acceptance of phase 2; the 2026-10-30 pass below is the pre-phase-2 baseline)
+
+Run on the final tree with every asset part built:
+
+* `npx tsc --noEmit`: clean. `npx vitest run`: 75 files passed, 1 skipped; 2 820 tests passed, 3 skipped. The first full run had one failure, the
+  contact allocation test (heap growth 15 MB under full-suite load; passes alone). It is now best-of-3 windows; the second full run is green.
+* `npm run smoke`: `"ok": true` (testpad drive 63.2 km/h, moved 29.3 m, 0 ignored console messages).
+* `npm run build`: ok; JS 2.65 MB (chunk-size warning only); `dist/assets/global/{ai.json,ghosts.json,ghosts/}` and `stages/<id>/ai.json`
+  shipped; no `dist/sound`.
+* `node tools/all-stages.mjs --jobs 6 --shots 0 --out artifacts/phase2/final/all-stages` (solo, autopilot, Micra): 48 / 48 PASS, 0 resets,
+  0 object hits, 0 console errors, max |lateral| 8.06 m.
+* Browser play-through through the real menu (`node artifacts/phase2/integrate/play.mjs --only menu-ai,menu-ghost,team-ghost,disciplines,orig0,solo
+  --out artifacts/phase2/final`): ALL OK, 53 checks, 0 console errors or warnings. Screenshots in `artifacts/phase2/final/` (looked at: mid-race
+  HUD with position strip, results card with the standings table, own-ghost race, team ghost on hillclimb-2c-r, rallycross and ice-racing finishes).
+  * corsica-1-f: Micra autopilot 3:03.322; Audi S1 / Metro 6R4 / Delta S4 finish 1:51.924 / 1:53.263 / 1:55.344, 0 resets.
+  * hillclimb-1a-f: AI 137.9 / 141.6 / 140.2 s, player 198.5 s; rallycross-1-f: AI 306.9 / 303.1 / 309.5 s, player 461.9 s; iceracing-1-f:
+    AI 298.3 / 291.0 / 295.4 s, player 661.4 s; all finish, 0 AI resets.
+  * own ghost from the results Restart; team ghosts kenya-1-f (JeffP, Lancer EVO 6.5b 1:51.945) and hillclimb-2c-r (Delta S4 1:18.411);
+    restart, main menu and stage change leave exactly the new roster; `?orig=0` plays (Opponents row disabled); Opponents None + Ghost Off = solo.
+* Railings: `tests/sim/objectPass.test.ts` (20 / 20): a real Micra on the built collision packs into the middle of a railing panel at 40 and
+  140 km/h, 6 families (hillclimb-3a-f, kenya-1-f, newzealand-1-f, rallycross-1-f, iceracing-3-f, corsica-3-r), held at the face every time.
+  This is a unit-level drive on the real packs, not a browser drive.
+* Not re-run in the final pass (rest on the builders' and integrator's reports in `docs/PHASE2_AI.md` 0.3): the memory (5 stage loads + 12 restarts,
+  heap +4.5 MB) and frame-rate runs (4 cars 0.89x, 4 cars + ghost 0.79x of solo, SwiftShader), the asset builds `ai` / `ghosts`, the
+  unicorn proofs, and the CI-like copy (tsc clean, 72 files passed / 3 skipped).
 
 ## Verification (2026-10-30 integration pass)
 
@@ -241,7 +336,10 @@ All on the current tree, with every part built:
 4. Damage: morph target uploaded but not driven, no broken lamps / glass, no glass-break particles, damage off in
    the sim (law not found). Dirt accumulation: factor stays 0.
 5. Menus: `Menu.rff` screens and 3-D garage, locale strings, HUD art; movies (`.bik`).
-6. No AI opponents (`AI.con`, `AiData.con`, split-time tables, the AI friction mode); the ghost is silent.
+6. AI and ghost values that are still guesses (section 13, docs/PHASE2_AI.md 0.5): AI skill per car and the difficulty-to-tyre-scale map
+   (both 1.0 in `roster.ts` skillOfGroup / AI_TYRE_SCALE; the Frida recording fits 0.70-0.75), the spin-recovery trigger (+0x54; `setRecovery`
+   has no caller), the ghost's look and whether it is drawn before GO, the player's grid index and the team-ghost start offsets (see
+   section 13). Visible effect: AI cars finish noticeably faster than the original's likely pace when the human is slow.
 7. Snow flakes look fainter than in the 3b-f / 3c-f Screenshots (D3D8 point-sprite mip choice untraced).
 8. High-detail shadows (ShadowGen / ShadowApply) and the dynamic car env cube are not ported; car LOD is chosen by
    distance.
@@ -252,10 +350,16 @@ All on the current tree, with every part built:
    |tan α|, |κ| and suspension extension; sprite extents (XYSizeRatio·size × size); lens flare size law; ghost
    material; car `envmapColorScale` / `metallicSpecularScale` bindings; `reflectivityScale` not applied.
 10. Sim: the material-0x23 branch, the impact-effect outputs B+0x190..0x1d0 (sparks, scrapes), the corner states
-    phys+0xa8..0xb4 (original 4, port 1), the bush drag on phys+0x28 (flag ported, drag not), car-car response
-    (FUN_004a7980 → FUN_006d4390).
+    phys+0xa8..0xb4 (original 4, port 1), the bush drag on phys+0x28 (flag ported, drag not). Car-car response
+    (FUN_004a7980 → FUN_006d4390) is ported and proven (section 13).
 11. Object pass approximations: the car box from its hull points (export the car geometry's render box to the
-    sim params instead), candidates by placement index, immediate refresh on reset.
+    sim params instead), candidates by placement index, immediate refresh on reset. The object pass runs per car before the car-car
+    contact step (the original interleaves them per car), and the contact port is float64: about 1.7 % of touching substeps in the Frida
+    trace (shallow piles, face-on-face ties under 2 mm) pick the other plane owner than the float32 exe did (no float32 mode).
+    A hard hit launches the car high (median rise 3.8 m at 140 km/h head-on into the riot fence; the corsica-3-r bank launch): the
+    gate and solver are exe-verified so this is probably faithful, but a Frida trace of the original hitting a fence or that bank would
+    settle it. AI cars scrape long rails (hillclimb-2b-f Skyline: 336 hit substeps; `objectHits` counts substeps, like the original's
+    per-substep record): not compared with the original AI.
 12. Race: the countdown writer (3 s from the images and sounds), the splineRange → +0x174 link [I], `race.distance`
     and race+0xa0c, the spline-distance function past the spline end, the pre-running road-edge check and AI stuck
     rule, one trigger per frame in the original. Default car Micra [I]: the Menu.rff `playerCarName` list starts with
@@ -264,6 +368,13 @@ All on the current tree, with every part built:
     pre-race tables, options sliders fixed at 1, CarSoundPlayer / ambience update rate, co-driver layer (2-D, 0.92),
     checkpoint stinger meaning, blow-out speed sign. The first menu key's own Step sound is lost while the bank
     loads; the stage ambience and engine are audible behind the boot menu once audio has started.
+13b. Phase-2 plumbing leftovers: `getAssetManifest()` (src/core/assets.ts) caches null for the session after one failed manifest fetch, so a
+    transient error drops AI, ghosts and every original asset until reload; `IMenuHost.saveSessionGhost` returns a boolean (the menu maps
+    save failures itself); the `overtake` FieldEvent is declared and never emitted; renderer `CarEntry.ai / carIndex` are stored and
+    unused; `GhostListEntry` has no driver field; the unicorn harnesses of the older proofs (`research/tools/contact_emu.py`, `emu_dyn.py`,
+    `research/frida/emu_body.py`) never set the x87 control word (they ran at extended precision, the game at 24-bit; difference about 1e-7
+    relative, inside the tolerances: re-run with FPCW 0x7f to tighten them). The autopilot can be shoved off the road by AI cars at the
+    start (it does not avoid them; one Saab93 run needed a reset).
 14. Environment: flare and weather alpha ops, weather texture switch, cloud upload format and the white cloud
     fog, HotSpot reference point (camera vs car); objects: view-distance factor q = 1, zone distance from the
     camera, filters; cars: camera-table `flag` meaning and the CarCamera attach offset (recorded, not applied).
@@ -283,6 +394,10 @@ All on the current tree, with every part built:
     particles; the original loads them with the race.
 19. TextureStore keeps up to 96 MB of the previous stage's textures until the next load finishes. The JS bundle is
     2.55 MB (Vite chunk-size warning).
+19b. Menu: with a best time on the stage, the BEST label next to the Back button is clipped (shows '3:03') in the main menu reached from
+    the pause menu; the HUD of a paused race (position box, strip) shows through the shade. Perf-budget tests (`tests/sim/ground.test.ts`
+    step cost, `tests/world/stages.test.ts` pine-ridge build time, the contact allocation test, now best-of-3) can fail when the machine is
+    saturated, and the browser tools and smoke are wall-clock dependent (they failed at load 100-250 in the builders' runs).
 20. Autopilot: could use `objectCollidersNear` instead of the cylinder hints; kenya-3-f/r run 2.4 / 4.7 s slower
     since it steers round bushes; the post-finish run-out is port behaviour. `drive.mjs` with countdown=0 logs two
     'go' events (harmless).

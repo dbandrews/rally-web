@@ -57,7 +57,8 @@ export const INST = {
   KIND: 26,
   FLAGS: 27,
 } as const;
-/** Instance flag: the geometry answers the colour interface (the object pass's small gate, 0x4a8008). */
+/** Instance flag: the geometry answers the colour interface 0xa5c048fc, i.e. it is a TreeMesh (only the TreeMesh
+ *  instance's QI 0x5901b0 does): the object pass's trunk gate 0.2·radius + 1.5 (0x4a8008); without it the spheres (0x4a8049). */
 export const INST_COLOUR = 1;
 /** Mesh table stride: tri0, nTri, AABB min xyz, max xyz. */
 export const MESH_STRIDE = 8;

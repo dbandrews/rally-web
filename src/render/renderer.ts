@@ -115,6 +115,12 @@ interface CarEntry {
   effects: CarEffects | null;
   ghost: boolean;
   player: boolean;
+  /** PHASE 2: an AI opponent (AddCarOptions.ai), its grid index (render slots 24·carIndex + wheel) and the model LOD
+   *  level forced for it (null = the renderer's distance LOD; the original's othercarlodlevel / playercarlodlevel,
+   *  ai.md §9). The ai-race builder owns the LOD behaviour (setCarLod). */
+  ai: boolean;
+  carIndex: number;
+  lodLevel: number | null;
   /** Texture scope of the original car visual (cars builder, loadOriginalCar); disposed after the visual. */
   origScope: TextureScope | null;
   /** Projected track lightmap under the original car (OriginalStageView.carLightmapAt): last patch + texture. */
@@ -525,7 +531,7 @@ export class GameRenderer implements IGameRenderer {
     const player = opts.player ?? ![...this.cars.values()].some((c) => c.player);
     if (player) for (const c of this.cars.values()) c.player = false;
     const effects = ghost ? null : new CarEffects(this.particles, this.skids, opts.origCar);
-    const entry: CarEntry = { visual, effects, ghost, player, origScope: null, lmPatch: -1, lmTex: null };
+    const entry: CarEntry = { visual, effects, ghost, player, ai: !!opts.ai, carIndex: opts.carIndex ?? 0, lodLevel: null, origScope: null, lmPatch: -1, lmTex: null };
     this.cars.set(id, entry);
     if (player) this.rig.invalidate();
     if (opts.origCar) return this.loadOrigCar(id, entry, opts.origCar);
@@ -555,6 +561,7 @@ export class GameRenderer implements IGameRenderer {
           return;
         }
         orig.setNight(this.night);
+        if (entry.lodLevel !== null) orig.setLod(entry.lodLevel); // PHASE 2: a level forced before the visual arrived
         entry.visual.setOriginal(orig, this.rig.camera);
         entry.origScope = scope;
         if (entry.player) this.applyCarCamera(carName, carCameraTuning(orig.info));
@@ -588,6 +595,20 @@ export class GameRenderer implements IGameRenderer {
     const t = makeCameraTuning();
     if (this.cameraPatch) deepMergeInto(t, this.cameraPatch);
     return t;
+  }
+
+  /**
+   * PHASE 2 (ai-race builder): force the model LOD level of a car (the original's `othercarlodlevel` for opponents,
+   * `playercarlodlevel` for the player, console vars of FUN_00694f50; ai.md §9); null = the renderer's own choice.
+   * Forces the original car's LOD set (0 = Mesh/Cars … 3 = Mesh/Cars_3; wheels switch with it) now, or as soon as its
+   * visual is attached. The levels themselves (video-quality table, FUN_00694f50 → FUN_00491ce0) are not in the
+   * archives, so nothing sets them by default: every car, AI included, keeps the camera-distance LOD (docs/orig/cars.md).
+   */
+  setCarLod(id: string, level: number | null): void {
+    const e = this.cars.get(id);
+    if (!e) return;
+    e.lodLevel = level;
+    e.visual.original?.setLod(level);
   }
 
   removeCar(id: string): void {

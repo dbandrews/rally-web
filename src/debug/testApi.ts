@@ -9,6 +9,7 @@
  *   raw = setRawInput override if set, else the real devices (keyboard / gamepad).
  */
 import { API_VERSION, neutralControls, neutralRawInput } from '../core/constants';
+import type { FieldSnapshot } from '../core/field';
 import type {
   CameraMode,
   CarInfo,
@@ -16,6 +17,7 @@ import type {
   Controls,
   FrameStats,
   GameTunables,
+  GhostInfo,
   LoadStageOptions,
   ProbeInfo,
   RaceEvent,
@@ -50,6 +52,9 @@ export interface TestApiHost {
   carInfo(): CarInfo;
   /** Race events since the last call (drained). */
   drainApiEvents(): RaceEvent[];
+  /** PHASE 2: the AI field and the ghosts in play. */
+  fieldSnapshot(): FieldSnapshot;
+  ghostInfos(): GhostInfo[];
 }
 
 declare global {
@@ -108,6 +113,8 @@ export function installTestApi(host: TestApiHost): RallyTestApi {
     probe: () => clone(host.probe()),
     getCarInfo: () => clone(host.carInfo()),
     getRaceEvents: () => clone(host.drainApiEvents()),
+    getField: () => clone(host.fieldSnapshot()),
+    getGhosts: () => clone(host.ghostInfos()),
   };
   window.__rally = api;
   return api;

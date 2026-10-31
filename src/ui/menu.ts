@@ -47,6 +47,9 @@ import type {
   TyreType,
 } from '../core/types';
 import { HelpOverlay } from './help';
+import { aiMenuRows, aiResultsHtml } from './menuAi';
+import { ghostDialogOpen, ghostKey, ghostMenuRows, ghostResultButtons } from './menuGhosts';
+import type { MenuExtraEnv } from './menuExtras';
 import { escapeHtml, firstPad, formatDelta, formatTime, isTypingTarget, readBestTime, setUiSetting, uiSettings } from './settings';
 import { injectUiStyles } from './styles';
 
@@ -333,6 +336,7 @@ export class Menu implements IMenu {
     this.buttons = [
       { id: 'restart', label: 'Restart', primary: true, run: () => this.restart() },
       { id: 'next', label: 'Next stage', run: () => this.nextStage() },
+      ...ghostResultButtons(this.extraEnv()), // PHASE 2 hook (ghosts builder): SAVE GHOST
       { id: 'main', label: 'Main menu', run: () => this.showMain() },
     ];
     this.focus = 0;
@@ -388,6 +392,16 @@ export class Menu implements IMenu {
       if (this.screen === 'main' && this.carEntry()?.id === id) this.renderMain();
     });
     return undefined;
+  }
+
+  /** PHASE 2: what the extra rows / buttons (menuAi.ts, menuGhosts.ts) may use. */
+  private extraEnv(): MenuExtraEnv {
+    return {
+      sel: this.sel,
+      host: this.host,
+      stageEntry: () => this.stageEntry(),
+      rerender: () => this.render(),
+    };
   }
 
   private buildMainRows(): void {
@@ -547,6 +561,9 @@ export class Menu implements IMenu {
             ? 'The original engine, surface, impact, ambience and co-driver samples. M toggles it in the car.'
             : 'Synthesised engine, tyre and impact sounds (the original sound bank is off or not built). M toggles it in the car.',
       },
+      // PHASE 2 hook: opponents row (ai-race builder, src/ui/menuAi.ts) and ghost row (ghosts builder, src/ui/menuGhosts.ts)
+      ...aiMenuRows(this.extraEnv()),
+      ...ghostMenuRows(this.extraEnv()),
     ];
     this.buttons = [
       { id: 'start', label: 'Start stage', primary: true, run: () => this.startSelected() },
@@ -608,6 +625,7 @@ export class Menu implements IMenu {
         `<h2>Stage complete</h2><div class="rw-cardsub">${escapeHtml(z.stage)} · ${escapeHtml(z.car)}</div>` +
         `<div class="rw-bigtime">${formatTime(z.time)}</div>${vs}` +
         `<div class="rw-scroll"><table class="rw-splits">${resultRows(z)}</table></div>` +
+        aiResultsHtml(this.lastCtx?.field) + // PHASE 2 hook (ai-race builder): standings
         `<div class="rw-stats"><span>Top speed <b>${Math.round(z.top)} km/h</b></span><span>Resets <b>${z.resets}</b></span></div>`;
     }
     const btns = this.buttons
@@ -750,6 +768,7 @@ export class Menu implements IMenu {
       e.preventDefault();
       e.stopImmediatePropagation();
     };
+    if (ghostKey(e, this.screen === 'main' && this.focus < this.rows.length ? this.rows[this.focus].id : '', this.extraEnv())) return consume(); // PHASE 2 hook (ghosts): SAVE GHOST dialog keys, Delete on the Ghost row
     if (this.help.visible) {
       if (code.startsWith('F') && code.length <= 3) return; // F-keys pass through
       consume();
@@ -862,7 +881,7 @@ export class Menu implements IMenu {
 
   private pollPad(dt: number): void {
     const p = firstPad();
-    if (!p) return;
+    if (!p || ghostDialogOpen()) return; // PHASE 2 hook (ghosts): the SAVE GHOST dialog is keyboard / mouse only
     const down = (i: number) => !!p.buttons[i] && (p.buttons[i].pressed || p.buttons[i].value > 0.5);
     const now: boolean[] = [];
     for (let i = 0; i < 16; i++) now[i] = down(i);

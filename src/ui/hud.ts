@@ -21,6 +21,7 @@
  */
 import { CAMERA_MODES, SURFACE_INFO, TYRE_NAMES } from '../core/constants';
 import type { CameraMode, FrameContext, IHud, Pacenote, Stage, SurfaceId } from '../core/types';
+import { AiHud } from './hudAi';
 import { MODIFIER_LABEL, pacenoteSvg, WARN_MODIFIERS } from './pacenoteIcon';
 import { escapeHtml, formatDelta, formatTime, isTypingTarget, onToast, onUiSettings, setUiSetting, toast, uiSettings } from './settings';
 import { injectUiStyles } from './styles';
@@ -165,6 +166,8 @@ export class Hud implements IHud {
   private chipKey = '';
   private readonly cache = new Map<string, string>();
   private readonly voice = new CoDriverVoice();
+  /** PHASE 2 hook (ai-race builder, src/ui/hudAi.ts): race position / standings. */
+  private readonly aiHud: AiHud;
   private lastPhase = '';
   private readonly offToast: () => void;
   private readonly offSettings: () => void;
@@ -254,6 +257,7 @@ export class Hud implements IHud {
 
     this.wrap.append(this.progressBox, clock, this.notesEl, this.gaugeBox, this.surfEl, this.chips, this.msg, this.cp, this.toasts, this.fade);
     root.appendChild(this.wrap);
+    this.aiHud = new AiHud(this.wrap);
     this.offToast = onToast((t) => this.showToast(t));
     this.offSettings = onUiSettings(() => {
       this.noteKey = '\u0000'; // force a rebuild (also when the cards are switched off)
@@ -314,6 +318,7 @@ export class Hud implements IHud {
       if (e.type === 'checkpoint' || e.type === 'lap') this.cpShowT = 3.0;
     }
     if (!showHud) return;
+    this.aiHud.update(ctx); // PHASE 2 hook
 
     // ---- progress
     const prog = Math.max(0, Math.min(1, r.progress));
@@ -554,6 +559,7 @@ export class Hud implements IHud {
     this.offToast();
     this.offSettings();
     this.voice.stop();
+    this.aiHud.dispose();
     this.wrap.remove();
   }
 }

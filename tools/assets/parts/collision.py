@@ -114,8 +114,13 @@ KINDS = ('tree', 'pine', 'bush', 'rock', 'boulder', 'post', 'sign', 'barrier', '
 INST_STRIDE = 32
 (I_M, I_T, I_MESH, I_MATERIAL, I_RADIUS, I_OBJECT, I_TEMPLATE, I_BOXMIN, I_BOXMAX, I_CENTRE, I_KIND,
  I_FLAGS) = (0, 9, 12, 13, 14, 15, 16, 17, 20, 23, 26, 27)
-IF_COLOUR = 1           # the geometry answers the colour interface 0xa5c048fc (every Standard/TreeMesh instance):
-                        # the object pass then gates on |T - car| <= 0.2·radius + 1.5 (0x4a8008)
+IF_COLOUR = 1           # the geometry answers the colour interface 0xa5c048fc: ONLY a TreeMesh instance does (its QI
+                        # 0x5901b0, vtbl 0x810f20, created by the TreeMesh template's createInstance 0x57ac80 ->
+                        # ctor 0x58ff80; the StandardMesh / AnimatedMesh instance QIs 0x586e10 / 0x57fc00 answer
+                        # scale, shadowFactor and physics but not colour; docs/orig/collision.md §4.1). The object
+                        # pass then gates on |T - car centre| <= 0.2·radius + 1.5 (0x4a8008: near the trunk);
+                        # every other object on the bounding spheres |centre - car centre| <= radius + car radius
+                        # (0x4a8049)
 
 
 def _pad4(b):
@@ -277,8 +282,9 @@ class _ObjectMeshes:
             self.nt += len(I)
         return self.index[path]
 
-    def add(self, cv, M, t, box, material, obj, tpl, kind):
-        """One hard part: v_sim = v_local · M + t (M = diag(scale)·R rows, as 0x591c20 composes them)."""
+    def add(self, cv, M, t, box, material, obj, tpl, kind, tree):
+        """One hard part: v_sim = v_local · M + t (M = diag(scale)·R rows, as 0x591c20 composes them). `tree`: the
+        geometry is a TreeMesh (IF_COLOUR, the object pass's trunk gate)."""
         lo, hi = np.array(box[0], np.float64), np.array(box[1], np.float64)
         rec = [0.0] * INST_STRIDE
         rec[I_M:I_M + 9] = M.reshape(-1).tolist()
@@ -286,7 +292,7 @@ class _ObjectMeshes:
         rec[I_MESH] = self.mesh_id(cv)
         rec[I_MATERIAL] = material
         rec[I_RADIUS] = 0.5 * float(np.linalg.norm((hi - lo) @ M))
-        rec[I_OBJECT], rec[I_TEMPLATE], rec[I_KIND], rec[I_FLAGS] = obj, tpl, kind, IF_COLOUR
+        rec[I_OBJECT], rec[I_TEMPLATE], rec[I_KIND], rec[I_FLAGS] = obj, tpl, kind, IF_COLOUR if tree else 0
         rec[I_BOXMIN:I_BOXMIN + 3] = lo.tolist()
         rec[I_BOXMAX:I_BOXMAX + 3] = hi.tolist()
         rec[I_CENTRE:I_CENTRE + 3] = (((lo + hi) * 0.5) @ M + t).tolist()
@@ -377,7 +383,7 @@ def build_obstacles(ctx, stage):
     rows, hull = [], []
     om = _ObjectMeshes()
     stats = {'placements': len(placements), 'objects': 0, 'hard': 0, 'dynamic': 0, 'soft': 0, 'chains': 0,
-             'chainCylinders': 0, 'farDropped': 0, 'meshInstances': 0}
+             'chainCylinders': 0, 'farDropped': 0, 'meshInstances': 0, 'treeMeshInstances': 0}
     tpl_names = []
     tpl_index = {}
     col_cache = {}
@@ -465,8 +471,10 @@ def build_obstacles(ctx, stage):
                 # a zero scale (editor debris, `Object.geometry.scale 0/0/0`) has no shape to hit
                 if abs(np.linalg.det(M)) > 1e-12:
                     box = info.get('meshBBox') or [lmin.tolist(), lmax.tolist()]
-                    om.add(cv, M, t, box, mat, k, tpl_index[name], kind)
+                    tree = str(info.get('geometryType', '')).lower() == 'treemesh'
+                    om.add(cv, M, t, box, mat, k, tpl_index[name], kind, tree)
                     stats['meshInstances'] += 1
+                    stats['treeMeshInstances'] += tree
                 else:
                     stats['degenerateMeshes'] = stats.get('degenerateMeshes', 0) + 1
             compact = half <= COMPACT_MAX_HALF and half <= COMPACT_ASPECT * max(1e-3, min(ax, az))

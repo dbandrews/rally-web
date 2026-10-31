@@ -192,6 +192,15 @@ body.rw-tuning-open .rw-notes { max-width: calc(100vw - 2 * min(420px, 41vw) - 3
 @media (max-width: 1100px) {
   .rw-notes { top: 82px; max-width: calc(100vw - 32px); }
 }
+/* 720p windows: the main menu has 13 rows since the Opponents / Ghost rows (phase 2): tighten it so title and buttons both fit */
+@media (max-height: 800px) {
+  .rw-title { font-size: 40px; }
+  .rw-subtitle { margin: 2px 0 8px; }
+  .rw-opt { min-height: 27px; }
+  .rw-info { margin-top: 6px; padding: 6px 12px; min-height: 0; }
+  .rw-actions { margin-top: 8px; }
+  .rw-foot { margin-top: 6px; font-size: 11px; }
+}
 /* short windows (a 1366x768 laptop browser is about 620-640 px tall): compact menus so every button fits */
 @media (max-height: 700px) {
   .rw-title { font-size: 34px; }

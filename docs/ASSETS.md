@@ -407,6 +407,8 @@ needs go in a new `tools/assets/lib/<topic>.py`.
 | **cars** | `tools/assets/parts/cars.py` | `src/render/orig/car*.ts`, `carVisual.ts` / `carModel.ts` / `livery.ts`, renderer `addCar` / `removeCar`, main.ts car selection, menu car list | cars.md, standardmesh.md §5.6 |
 | **audio** | `tools/assets/parts/audio.py` | `src/audio/**`, `src/ui/voice.ts`, main.ts audio call sites | sound.md |
 | **effects** | `tools/assets/parts/effects.py` | `src/render/effects.ts`, `src/render/orig/effects*.ts` | environment.md (particles), textures.md |
+| **ai** (phase 2) | `tools/assets/parts/ai.py` (+ `lib/formats/fmt_aidata.py`, `fmt_aitimes.py`) | `src/game/ai/aidata.ts` (`loadAiStageData`, `loadAiSchedule`), `driver.ts` | docs/orig/ai.md, research/formats/ai.md |
+| **ghosts** (phase 2) | `tools/assets/parts/ghosts.py` (+ `lib/formats/fmt_ghost.py`) | `src/game/ghosts/{team,store,session}.ts`, `src/ui/menuGhosts.ts` | docs/orig/ghosts.md, research/formats/ghosts.md |
 | **race** | — (`research/tools/port_tracks.py`) | `src/game/**`, `src/world/{portedDefs,portedBuilder,portSpline,stages}.ts`, `src/world/ports/**` | MECHANICS_SPEC.md, sound.md §10 (Pacenotes.con) |
 | **sim** | — | `src/sim/**` except `origCars.ts` / `presets.ts` | MECHANICS_SPEC.md, gcm.md §3.5-3.6 |
 
@@ -415,7 +417,11 @@ docs/ARCHITECTURE.md §1.1.
 
 Part names (= output file names and manifest entries): `track`, `collision`, `objects`, `environment`, `cars`
 (car phase; its `build_stage` may also write `stages/<id>/cars.json` with the per-stage car inputs), `audio`
-(global phase: `global/audio.json` sets `manifest.audio`).
+(global phase: `global/audio.json` sets `manifest.audio`). Phase 2 adds `ai` (per stage `stages/<id>/ai.json`: the AiData posts and
+the side.rsd 5 m sample table, 804 posts / 39 827 samples over the 48 stages; global `global/ai.json`: the 360 AiTimes schedules; a part
+may only write `<part>.*`, hence `global/ai.json`, not `aitimes.json`) and `ghosts` (global: `global/ghosts.json` = the index with the 48
+stages' `Game.createTrack` height H and the 30 team ghosts, `global/ghosts/<File>.bin`: the original files byte for byte). Both are gitignored
+like every part and are rebuilt with `npm run assets -- --stages all --parts ai` / `npm run assets -- --parts ghosts`.
 
 ### Integration gaps (closed)
 

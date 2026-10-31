@@ -19,6 +19,7 @@ import { CoDriverPlayer, setCoDriverOutput } from './coDriver';
 import { dsGain } from './ds';
 import { EnvSoundManager } from './envSound';
 import { type OriginalSoundBank, scriptSampleKeys } from './index';
+import { OtherCarSounds } from './otherCars';
 import { ScriptInstance, SoundSystem } from './patch';
 import { WebAudioBackend } from './webBackend';
 
@@ -65,6 +66,8 @@ export class OriginalAudio {
   private car: CarSoundPlayer | null = null;
   private carName: string | null = null;
   private env: EnvSoundManager | null = null;
+  /** PHASE 2 hook (ai-race builder, src/audio/orig/otherCars.ts): the AI opponents' engines. */
+  private readonly others: OtherCarSounds;
   private stageKey: string | null = null;
   private readonly ui: Record<string, ScriptInstance | null> = {};
   private readonly mapper = new CarInputMapper();
@@ -93,6 +96,7 @@ export class OriginalAudio {
     this.backend = new WebAudioBackend(ac, sounds, this.sfxBus);
     this.sys = new SoundSystem(this.backend, (Date.now() & 0x7fffffff) || 1);
     this.backend.sys = this.sys;
+    this.others = new OtherCarSounds(this.sys, this.bank, (keys) => void this.sounds.load(keys));
     this.sys.onTick = () => this.commitListener();
     for (const k of ['CountDown', 'CheckPoint', 'Error'] as const) {
       const key = this.bank.ui[k];
@@ -140,6 +144,7 @@ export class OriginalAudio {
     // a stage change stops every sound (the original rebuilds its objects per level)
     this.env?.dispose();
     this.coDriver.stop();
+    this.others.stopAll(); // PHASE 2 hook
     this.sys.stopAll();
     this.backend.stopAll();
     this.heard.clear();
@@ -211,6 +216,7 @@ export class OriginalAudio {
     if (mute) return;
     const inp = this.mapper.map(ctx);
     this.car?.update(ctx.frameDt, inp);
+    this.others.update(ctx); // PHASE 2 hook
     this.env?.update([inp.pos]);
     this.sys.advance(ctx.frameDt);
   }
@@ -276,6 +282,7 @@ export class OriginalAudio {
   dispose(): void {
     this.env?.dispose();
     this.car?.dispose();
+    this.others.dispose(); // PHASE 2 hook
     for (const s of Object.values(this.ui)) s?.kill();
     this.sys.stopAll();
     this.backend.stopAll();

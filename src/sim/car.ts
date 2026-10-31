@@ -76,6 +76,8 @@ import type {
 } from '../core/types';
 import { hullSlot, makeRayHit, SLOTS_PER_CAR, wheelSlot } from '../core/worldQuery';
 import { origHull } from './origHulls';
+import { boxContactHull, carContactHull, type ContactHull } from './contact/hull';
+import { makeContactBody, type ContactBody } from './contact/solve';
 import { makeSurfaceTable } from './params';
 import { buildLoadTable, torqueCurveAt, tyreForce, type TyreForceOut } from './tables';
 
@@ -170,10 +172,12 @@ const HULL_MAX_CONTACTS = 4;
  * The object pass FUN_004a7980 / FUN_004a7bc0 [V asm 0x4a7bc0-0x4a8ae0], run after each physics substep (game loop
  * FUN_0049ffe0): the car's candidate list is refreshed every 16 substeps (game+0x940 = 0x10, set at 0x484143), car k
  * when the substep counter (game+0x944, mod 16) equals 4k (switch 0x4a7cdb; cars ≥ 4 never), with the objects within
- * 16·0.25 m + the car's radius (0x4a7d51). A mesh object (its geometry answers the colour interface, as every
- * Standard/TreeMesh instance does) is then tested only while |origin − car| ≤ 0.2·radius + 1.5 (0x4a8008: 0x7fc78c,
- * 0x8070d0; 3-D) and its render box overlaps the car's box (FUN_005d5ef0/5f90/5fe0: no car-box face plane has all 8
- * object-box corners outside).
+ * 16·0.25 m + the car's radius of the car's bounding centre (0x4a7d51). A TreeMesh object (its geometry answers the
+ * colour interface 0xa5c048fc: only the TreeMesh instance's QI 0x5901b0 does) is then tested only while
+ * |origin − car centre| ≤ 0.2·radius + 1.5 (0x4a8008: 0x7fc78c, 0x8070d0; 3-D: near the trunk); every other object
+ * (StandardMesh: fences, walls, signs, rocks, houses) while the bounding spheres overlap,
+ * |centre − car centre| ≤ radius + car radius (0x4a8049: object +0xc / +8, car object +0xc / +8). Then its render box
+ * must overlap the car's box (FUN_005d5ef0/5f90/5fe0: no car-box face plane has all 8 object-box corners outside).
  */
 const OBJ_REFRESH = 16;
 const OBJ_REFRESH_STEP_M = 0.25;
@@ -198,6 +202,33 @@ const ORIG_SOLID_MIN = 0x20;
 type BodyColumns = Pick<SurfaceDef, 'bodyK' | 'bodyKScale' | 'maxDepth' | 'epsilon'>;
 /** PhysicsParam.con row 23 (DUMMY) and the getter's "missing row → all columns 1.0" (FUN_006d5d00) [V]. */
 const DUMMY_BODY: BodyColumns = { bodyK: 0.01, bodyKScale: 1, maxDepth: 0, epsilon: 1 };
+
+// ===== AI friction (phase 2) =========================================================================================
+/**
+ * AI friction mode (MECHANICS_SPEC §4.2, research/formats/ai.md §10, docs/orig/ai.md §7): a car flagged as an AI opponent
+ * (RallyCar +0x17 = 1 -> PhysCar+0xcc bit 0) reads the tarmac (ASPHALT) tyre row's bestStatic / diffStatic / scaleKinetic /
+ * bestRollK on EVERY surface [E 0x6c4978-0x6c49ac] and FrictionLevel = min(FL, 0) [E 0x6cb6cb]. Returns a PRIVATE deep copy
+ * of the table (the player's and the ghost's tables are never touched).
+ */
+export function aiFrictionTable(src: SurfaceTable): SurfaceTable {
+  const asphalt = src.tarmac.tyre;
+  const out = {} as SurfaceTable;
+  for (const [k, def] of Object.entries(src) as [SurfaceId, SurfaceDef][]) {
+    out[k] = {
+      ...def,
+      frictionLevel: Math.min(def.frictionLevel, 0),
+      tyre: def.tyre.map((r, t) => ({
+        ...r,
+        bestStatic: asphalt[t].bestStatic,
+        diffStatic: asphalt[t].diffStatic,
+        scaleKinetic: asphalt[t].scaleKinetic,
+        bestRollK: asphalt[t].bestRollK,
+      })) as SurfaceDef['tyre'],
+    };
+  }
+  return out;
+}
+// ===== end AI friction ===============================================================================================
 const MISSING_BODY: BodyColumns = { bodyK: 1, bodyKScale: 1, maxDepth: 1, epsilon: 1 };
 
 /** Obstacle (tree / rock / post) impulse model [D]: forgiving. */
@@ -324,6 +355,8 @@ export class CarSim implements ICarSim {
   readonly params: CarParams;
   private world: WorldQuery;
   private surfaces: SurfaceTable;
+  /** AI friction mode (phase 2): `surfaces` is the private tarmac-row copy, see aiFrictionTable. */
+  private readonly aiFriction: boolean;
   private readonly rng: Rng;
 
   // ---- body (§1.4 Body) ----
@@ -413,6 +446,8 @@ export class CarSim implements ICarSim {
   private readonly carBoxMin: V3 = v3();
   private readonly carBoxMax: V3 = v3();
   private carRadius = 0;
+  /** The car object's bounding centre (object +0xc: the car box's centre, SIM), refreshed by each object pass. */
+  private readonly carCentre: V3 = v3();
 
   // ---- car state (§1.4 CarState) ----
   private speedKmh = 0;
@@ -496,6 +531,8 @@ export class CarSim implements ICarSim {
     this.params = opts.params;
     this.world = opts.world;
     this.surfaces = opts.surfaces ?? makeSurfaceTable();
+    this.aiFriction = opts.aiFriction === true; // ===== AI friction (phase 2)
+    if (this.aiFriction) this.surfaces = aiFrictionTable(this.surfaces);
     this.rng = new Rng(opts.seed ?? 1);
     this.slotBase = Number.isInteger(opts.slotBase) && (opts.slotBase as number) >= 0 ? (opts.slotBase as number) : 0;
     this.carIndex = Math.floor(this.slotBase / SLOTS_PER_CAR);
@@ -627,7 +664,7 @@ export class CarSim implements ICarSim {
   }
 
   setSurfaces(table: SurfaceTable): void {
-    this.surfaces = table;
+    this.surfaces = this.aiFriction ? aiFrictionTable(table) : table; // AI friction (phase 2): a private copy
   }
 
   setWorld(world: WorldQuery): void {
@@ -2092,9 +2129,10 @@ export class CarSim implements ICarSim {
    * come from the hull, the original's from the car geometry], run after the physics substep on worlds that carry the
    * objects' own collision meshes (WorldQuery.objectCollidersNear; otherwise obstacleCollision's cylinders stand in):
    *   1. candidates: refreshed every OBJ_REFRESH substeps (car k at counter 4k; cars ≥ 4 never), within
-   *      16·0.25 m + the car's radius, processed in descending order (the original sorts the pointers descending:
-   *      here by placement index) [~];
-   *   2. per object, the gate |origin − car| ≤ 0.2·radius + 1.5 (3-D) and the render box against the car's box;
+   *      16·0.25 m + the car's radius of the car's centre, processed in descending order (the original sorts the
+   *      pointers descending: here by placement index) [~];
+   *   2. per object, the gate (3-D): a TreeMesh |origin − car centre| ≤ 0.2·radius + 1.5 (0x4a8008), any other
+   *      object |centre − car centre| ≤ radius + car radius (0x4a8049); then the render box against the car's box;
    *   3. FUN_006d1a80: EVERY hull point (no scheduling), the segment from the previous COM (B+0xd8) to the point
    *      through the object's mesh (ObjectCollider.segment = 0x597810, slot −1); a hit is a contact when its depth
    *      < 0.01 and fewer than 4 contacts so far, material = collisionMaterial (0..22) else 1; the accumulation of
@@ -2106,9 +2144,18 @@ export class CarSim implements ICarSim {
   private objectPass(dt: number): void {
     const world = this.world;
     if (!world.objectCollidersNear || this.carIndex >= OBJ_MAX_CARS) return;
+    // the car object's bounding centre (object +0xc, 0x6f0b60: the box centre through the car's matrix) [~ hull box]
+    const cc = this.carCentre;
+    const bMin = this.carBoxMin;
+    const bMax = this.carBoxMax;
+    setV(cc, (bMin.x + bMax.x) * 0.5, (bMin.y + bMax.y) * 0.5, (bMin.z + bMax.z) * 0.5);
+    this.toWorldTo(cc, cc);
+    cc.x += this.pos.x;
+    cc.y += this.pos.y;
+    cc.z += this.pos.z;
     if (this.objStale || this.steps % OBJ_REFRESH === 4 * this.carIndex) {
       this.objStale = false;
-      this.objList = world.objectCollidersNear(this.pos, OBJ_REFRESH * OBJ_REFRESH_STEP_M + this.carRadius, this.objList);
+      this.objList = world.objectCollidersNear(cc, OBJ_REFRESH * OBJ_REFRESH_STEP_M + this.carRadius, this.objList);
       if (this.objList.length > 1) this.objList.sort((a, b) => b.object - a.object);
     }
     const list = this.objList;
@@ -2122,13 +2169,13 @@ export class CarSim implements ICarSim {
     const P = this.cRW;
     const hull = this.hull;
     const hit = this.objHit;
-    const bMin = this.carBoxMin;
-    const bMax = this.carBoxMax;
     for (let k = 0; k < list.length; k++) {
       const ob = list[k];
-      // 2. gate (0x4a8008): the object's origin within 0.2·radius + 1.5 of the car (3-D)
-      const gx = ob.origin.x - pos.x, gy = ob.origin.y - pos.y, gz = ob.origin.z - pos.z;
-      const gr = ob.radius * OBJ_GATE_K + OBJ_GATE_M;
+      // 2. gate (3-D): a TreeMesh's origin within 0.2·radius + 1.5 of the car's centre (0x4a8008); any other object's
+      //    bounding sphere touching the car's (0x4a8049)
+      const g = ob.treeMesh ? ob.origin : ob.pos;
+      const gx = g.x - cc.x, gy = g.y - cc.y, gz = g.z - cc.z;
+      const gr = ob.treeMesh ? ob.radius * OBJ_GATE_K + OBJ_GATE_M : ob.radius + this.carRadius;
       if (gx * gx + gy * gy + gz * gz - gr * gr > 0) continue;
       // the render box's 8 corners in the car's frame, against the car box's 6 face planes (FUN_005d5fe0)
       const m = ob.m;
@@ -2630,6 +2677,8 @@ export class CarSim implements ICarSim {
         objectType: this.objectType,
         objectStrength: fin(this.objectStrength),
         bush: this.inBush,
+        // phase 2: the car-car record, present once the car has been in a contact step (src/sim/contact.ts)
+        ...(this.cb ? { carHits: this.cb.carHits, carStrength: fin(this.cb.carStrength) } : null),
       },
       posSim: { x: fin(this.pos.x), y: fin(this.pos.y), z: fin(this.pos.z) },
       quatSim: { w: fin(q.w), x: fin(q.x), y: fin(q.y), z: fin(q.z) },
@@ -2643,6 +2692,75 @@ export class CarSim implements ICarSim {
       simFaults: this.faults,
     };
   }
+
+  // ===== contact body (phase 2) =========================================================================================
+  // OWNED BY THE SIM-CONTACT BUILDER (docs/PHASE2_AI.md 3.2). The live rigid-body view that the car-car contact
+  // (src/sim/contact.ts -> src/sim/contact/solve.ts = FUN_004a7980 -> FUN_006d4390) reads and writes. Nothing above this
+  // line calls into it; a solo race never creates the view (telemetry().collision.carHits stays absent).
+
+  /** The view (created on the first contactBody() call) and the hull-point array it was built from. */
+  private cb: ContactBody | null = null;
+  private cbHullSrc: V3[] | null = null;
+
+  /**
+   * The car as FUN_006d4390 sees it, refreshed from the car's state (call once per substep, after step()):
+   * vectors are the car's own live objects (pos, vW, L (body), w (body, lagged), invI, the axes right/up/fwd = the rotation
+   * rows, the anchor memory bsPrevN / bsPrevC), scalars are pulled (mass, B+0x134 anchor timer, B+0x19c = the latest body
+   * solver strength), the hull is ALL points and planes of Car_<Name>.col (18 + 10; contact/carHulls.ts), or the box of
+   * the probe points for archetype cars. The contact's writes (v, L, pos x/z, prevN/prevC, T) land in the car directly;
+   * `commit()` (called by stepCarContacts for a touched body) stores the timer and drops the telemetry cache so the
+   * next step() and telemetry() see them. The impact record B+0x144 / 0x19c of the original is NOT written back into
+   * hullMaterial / hullStrength (those keep describing the ground contact, CollisionTelemetry.hull*); the car-car
+   * record lives in telemetry().collision.carHits / carStrength.
+   */
+  contactBody(): ContactBody {
+    let b = this.cb;
+    if (!b) {
+      b = this.cb = makeContactBody(this.contactHull(), this.mass, this.I);
+      b.pos = this.pos;
+      b.v = this.vW;
+      b.L = this.L;
+      b.w = this.w;
+      b.invI = this.invI;
+      b.right = this.right;
+      b.up = this.up;
+      b.fwd = this.fwd;
+      b.prevN = this.bsPrevN;
+      b.prevC = this.bsPrevC;
+      const view = b;
+      b.commit = () => {
+        this.bsT = view.T;
+        this.telCache = null;
+      };
+    }
+    if (this.hull !== this.cbHullSrc) b.hull = this.contactHull();
+    b.radius = b.hull.radius;
+    b.mass = this.mass;
+    b.invMass = this.invMass;
+    b.sleep = 0; // a car body never sleeps (B+0x20c = 0, 0x6c8cae)
+    b.T = this.bsT;
+    b.imp19c = this.bodyStrength;
+    b.imp190 = b.imp194 = b.imp1a0 = 0;
+    b.dirty = false;
+    return b;
+  }
+
+  /** FUN_004a7980's `collidable` (car+0x161): false takes the car out of every car-car contact (default true). */
+  setCollidable(on: boolean): void {
+    if (!this.cb) this.contactBody();
+    this.cb!.collidable = on;
+  }
+
+  /** The collision hull: Car_<Name>.col in full, else the box of the hull probe points (archetype cars). */
+  private contactHull(): ContactHull {
+    this.cbHullSrc = this.hull;
+    const h = carContactHull(this.hullCar);
+    if (h) return h;
+    const mn = this.carBoxMin;
+    const mx = this.carBoxMax;
+    return boxContactHull(mn.x, mn.y, mn.z, mx.x, mx.y, mx.z);
+  }
+  // ===== end of contact body (phase 2) ==================================================================================
 }
 
 // ------------------------------------------------------------------------------------------- helpers

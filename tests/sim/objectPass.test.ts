@@ -4,18 +4,30 @@
  *   - the object contacts' body solver FUN_006d21c0 against the original run in unicorn (fixtures/bodySolverObjCases.json,
  *     generator fixtures/gen_body_obj_cases.py): the ground solver with its own anchor timer and the ±1000 friction clamp;
  *   - FUN_006d1a80 hull segments through synthetic box meshes on a flat world: a head-on hit, a thin fence panel beside
- *     the car (no invisible wall), the 0.2·radius + 1.5 gate, the 16-step candidate refresh and the car-index limit.
+ *     the car (no invisible wall), the two gates (a TreeMesh's trunk gate 0.2·radius + 1.5 around its origin 0x4a8008;
+ *     any other object's bounding sphere around its centre 0x4a8049), the 16-step candidate refresh and the car-index
+ *     limit;
+ *   - the gate on a real BUILT stage (public/assets): a Micra driven into the MIDDLE of a railing panel is held at its
+ *     face — the reported bug (before the two-branch gate the panel's middle was never tested: its origin sits at one
+ *     end, beyond 0.2·radius + 1.5). The packs are tracked in git: when they are missing the suite FAILS (no silent skip).
  */
 import { describe, expect, it } from 'vitest';
 import { DT } from '../../src/core/constants';
+import { qYawSim } from '../../src/core/math';
 import type { Controls, ObjectCollider, SimV3, WorldQuery } from '../../src/core/types';
 import { CarSim } from '../../src/sim/car';
 import { makeCarParams, makeSurfaceTable } from '../../src/sim/params';
+import { origCarParams } from '../../src/sim/presets';
 import { OrigObjectMeshes } from '../../src/world/orig/objectMeshes';
-import { INST, type RcolData } from '../../src/world/orig/rcol';
+import { INST, INST_COLOUR, MESH_STRIDE, parseRcol, type RcolData } from '../../src/world/orig/rcol';
+import { OrigWorld } from '../../src/world/orig/world';
 import { createFlatWorld, flatSpawnPose } from './flatworld';
 
-const fs = (await import(/* @vite-ignore */ 'node:' + 'fs')) as { readFileSync(p: string, e: string): string };
+const fs = (await import(/* @vite-ignore */ 'node:' + 'fs')) as {
+  readFileSync(p: string, e: string): string;
+  readFileSync(p: string): Uint8Array;
+  existsSync(p: string): boolean;
+};
 
 type V = [number, number, number];
 const STRIDE = 28;
@@ -27,6 +39,8 @@ interface Box {
   origin?: V;
   /** Bounding radius override (object +8); default the box's half diagonal. */
   radius?: number;
+  /** The geometry answers the colour interface (a TreeMesh instance): the trunk gate applies. */
+  tree?: boolean;
   material?: number;
 }
 
@@ -61,6 +75,7 @@ function boxWorld(boxes: Box[], base: WorldQuery = createFlatWorld()) {
     r.splice(INST.BOXMIN, 3, ...lo);
     r.splice(INST.BOXMAX, 3, ...hi);
     r.splice(INST.CENTRE, 3, ...b.c);
+    r[INST.FLAGS] = b.tree ? INST_COLOUR : 0;
     inst.push(...r);
   });
   const d = {
@@ -193,9 +208,9 @@ describe('the object pass (FUN_004a7bc0 / FUN_006d1a80) on object meshes', () =>
     expect(c2.telemetry().posSim.z).toBeGreaterThan(31.45); // and slides on past its end
   });
 
-  it('the gate: an object is only tested while the car is within 0.2·radius + 1.5 of its origin (0x4a8008)', () => {
+  it('the gate, tree branch: a TreeMesh is only tested while its origin is within 0.2·radius + 1.5 of the car (0x4a8008)', () => {
     // the same block, but its origin 6 m behind its face and a 20 m bounding radius: 0.2·20 + 1.5 = 5.5 m < 6 m
-    const world = boxWorld([{ c: [0, 1, 20.8], h: [1.5, 1, 0.8], origin: [0, 1, 26], radius: 20 }]);
+    const world = boxWorld([{ c: [0, 1, 20.8], h: [1.5, 1, 0.8], origin: [0, 1, 26], radius: 20, tree: true }]);
     const c = car(world);
     c.reset(flatSpawnPose(world));
     launch(c, 30);
@@ -206,6 +221,26 @@ describe('the object pass (FUN_004a7bc0 / FUN_006d1a80) on object meshes', () =>
     }
     // the car's centre reaches 26 − 5.5 = 20.5 m (past the face at 20) before the object is tested at all
     expect(hitAt).toBeGreaterThan(20.4);
+  });
+
+  it('the gate, sphere branch: any other object is tested while its centre is within radius + car radius (0x4a8049)', () => {
+    // the same geometry without the colour component (a StandardMesh instance, e.g. a railing): the gate is the
+    // bounding sphere |centre − car| ≤ 20 + car radius, open from the start — the car is stopped at its face
+    const world = boxWorld([{ c: [0, 1, 20.8], h: [1.5, 1, 0.8], origin: [0, 1, 26], radius: 20 }]);
+    const c = car(world);
+    c.reset(flatSpawnPose(world));
+    launch(c, 30);
+    let hitAt = NaN;
+    for (let i = 0; i < 360 && Number.isNaN(hitAt); i++) {
+      c.step(drive(0.3), DT);
+      if (c.telemetry().collision.objectHits > 0) hitAt = c.telemetry().posSim.z;
+    }
+    // the object is tested long before the car's centre is anywhere near its origin: the hit comes at the face
+    expect(hitAt).toBeLessThan(19);
+    const t = c.telemetry();
+    expect(t.collision.objectHits).toBeGreaterThan(0);
+    expect(t.posSim.z).toBeLessThan(20); // held at the face, never through it
+    expect(Math.abs(t.velSim.z)).toBeLessThan(3);
   });
 
   it('candidates refresh every 16 substeps (car k at 4k), cars ≥ 4 never; the cylinder stand-in is off', () => {
@@ -228,4 +263,177 @@ describe('the object pass (FUN_004a7bc0 / FUN_006d1a80) on object meshes', () =>
     for (let i = 0; i < 30; i++) c1.step(hold, DT);
     expect(cyl).toBe(0);
   });
+});
+
+// ---- the gate on a real BUILT stage (public/assets): the reported bug, a car through a railing panel ----
+const RAIL_STAGES: [string, RegExp][] = [
+  ['hillclimb-3a-f', /^NZFence5$/],
+  ['kenya-1-f', /^(kn_riotfence_01|NZFence4|NZFence5)$/],
+  // the other families (verifier): wire fence, concrete sign wall, ice-track fence (origin at 0, world-space mesh), stage-3 fence
+  ['newzealand-1-f', /^NZFence3$/],
+  ['rallycross-1-f', /^RC_Sign_ConcreteLong_/],
+  ['iceracing-3-f', /^(ir3fence\d+|RC_Sign_ConcreteLong_)/],
+  ['corsica-3-r', /^NZFence4$/],
+];
+const railAsset = (id: string) => `public/assets/stages/${id}/collision`;
+
+interface RailTarget {
+  world: OrigWorld;
+  /** A point on the panel's face at ground + 0.45 and the face's horizontal outward normal. */
+  P: V;
+  n: V;
+  /** The instance origin (transform translation) and bounding radius (object +8). */
+  origin: V;
+  radius: number;
+  /** The face's along-extent from the target point (m): the car may slide around the panel's END (s < 0 there). */
+  span: number;
+}
+
+/** The stage's first railing instance with a drivable wall face at the panel's MIDDLE: vertical, spanning the car's
+ *  hull heights, a level 5 m approach on the mesh, and farther from the instance's origin than the OLD single-branch
+ *  trunk gate (0.2·radius + 1.5, 0x4a8008) reached — the exact drive that passed through before the two-branch gate. */
+function findRailingTarget(id: string, tpl: RegExp): RailTarget | null {
+  const meta = JSON.parse(fs.readFileSync(`${railAsset(id)}.json`, 'utf8')) as {
+    obstacles: { kinds: string[]; templates: string[] };
+  };
+  const d = parseRcol(fs.readFileSync(`${railAsset(id)}.bin`).slice().buffer as ArrayBuffer);
+  const world = new OrigWorld(d, createFlatWorld() as unknown as WorldQuery, { kinds: meta.obstacles.kinds });
+  for (let k = 0; k < d.nInst; k++) {
+    const bi = k * d.instStride;
+    if (!tpl.test(meta.obstacles.templates[d.inst[bi + INST.TEMPLATE]] ?? '')) continue;
+    const M = Array.from(d.inst.subarray(bi + INST.M, bi + INST.M + 9));
+    const T = Array.from(d.inst.subarray(bi + INST.T, bi + INST.T + 3)) as V;
+    const radius = d.inst[bi + INST.RADIUS];
+    const mi = d.inst[bi + INST.MESH] * MESH_STRIDE;
+    const t0 = d.mesh[mi], nt = d.mesh[mi + 1];
+    const verts = new Map<number, V>();
+    const xf = (i: number): V => {
+      let v = verts.get(i);
+      if (!v) {
+        const x = d.mV[3 * i], y = d.mV[3 * i + 1], z = d.mV[3 * i + 2];
+        v = [x * M[0] + y * M[3] + z * M[6] + T[0], x * M[1] + y * M[4] + z * M[7] + T[1], x * M[2] + y * M[5] + z * M[8] + T[2]];
+        verts.set(i, v);
+      }
+      return v;
+    };
+    const tris: V[][] = [], nOut: V[] = [];
+    for (let t = t0; t < t0 + nt; t++) {
+      tris.push([d.mTI[4 * t], d.mTI[4 * t + 1], d.mTI[4 * t + 2]].map(xf));
+      const n = [-d.mTN[3 * t], -d.mTN[3 * t + 1], -d.mTN[3 * t + 2]];
+      const r: V = [
+        n[0] * M[0] + n[1] * M[3] + n[2] * M[6],
+        n[0] * M[1] + n[1] * M[4] + n[2] * M[7],
+        n[0] * M[2] + n[1] * M[5] + n[2] * M[8],
+      ];
+      const rl = Math.hypot(...r) || 1;
+      nOut.push([r[0] / rl, r[1] / rl, r[2] / rl]);
+    }
+    const seen: V[] = [];
+    for (let t = 0; t < tris.length; t++) {
+      const n0 = nOut[t];
+      if (Math.abs(n0[1]) > 0.25) continue; // a wall face, not the ground / roof
+      const nl = Math.hypot(n0[0], n0[2]) || 1;
+      const n: V = [n0[0] / nl, 0, n0[2] / nl];
+      if (seen.some((s) => s[0] * n[0] + s[2] * n[2] > 0.98)) continue; // one face per direction
+      seen.push(n);
+      const c: V = [(tris[t][0][0] + tris[t][1][0] + tris[t][2][0]) / 3, (tris[t][0][1] + tris[t][1][1] + tris[t][2][1]) / 3, (tris[t][0][2] + tris[t][1][2] + tris[t][2][2]) / 3];
+      const L: V = [n[2], 0, -n[0]]; // cross(up, n)
+      // the coplanar triangles of this face
+      const cop: number[] = [];
+      for (let q = 0; q < tris.length; q++) {
+        if (nOut[q][0] * n0[0] + nOut[q][1] * n0[1] + nOut[q][2] * n0[2] < 0.995) continue;
+        const w = tris[q][0];
+        if (Math.abs((w[0] - c[0]) * n0[0] + (w[1] - c[1]) * n0[1] + (w[2] - c[2]) * n0[2]) < 0.03) cop.push(q);
+      }
+      let uMin = Infinity, uMax = -Infinity;
+      for (const q of cop) for (const w of tris[q]) {
+        const u = (w[0] - c[0]) * L[0] + (w[2] - c[2]) * L[2];
+        uMin = Math.min(uMin, u);
+        uMax = Math.max(uMax, u);
+      }
+      if (uMax - uMin < 1.2) continue; // a panel, not a post edge
+      const u = 0.5 * (uMin + uMax); // the panel's middle along the face
+      const Pg: V = [c[0] + L[0] * u, c[1], c[2] + L[2] * u];
+      const gy = world.heightAt(Pg[0], Pg[2], c[1] + 1);
+      if (!world.onMesh(Pg[0], Pg[2]) || !Number.isFinite(gy)) continue;
+      // the face covers the car's hull heights at the middle (ground + 0.3 .. + 0.7)
+      let lo = Infinity, hi = -Infinity;
+      for (const q of cop) {
+        const pts = tris[q].map((w) => [(w[0] - c[0]) * L[0] + (w[2] - c[2]) * L[2], w[1]] as [number, number]);
+        for (let e = 0; e < 3; e++) {
+          const [u0, y0] = pts[e], [u1, y1] = pts[(e + 1) % 3];
+          if ((u0 - u) * (u1 - u) > 0 || u0 === u1) continue;
+          const y = y0 + ((u - u0) / (u1 - u0)) * (y1 - y0);
+          lo = Math.min(lo, y);
+          hi = Math.max(hi, y);
+        }
+      }
+      if (!(lo <= gy + 0.3 && hi >= gy + 0.7)) continue;
+      // a level 5 m approach on the mesh: along the face's outward normal (the side a car comes from), 0.5 m steps
+      let clear = true;
+      for (let a = 0; a <= 5.001 && clear; a += 0.5) {
+        const x = Pg[0] + n[0] * a, z = Pg[2] + n[2] * a;
+        clear = world.onMesh(x, z) && Math.abs(world.heightAt(x, z, gy + 1) - gy) <= 2.5;
+      }
+      if (!clear) continue;
+      const P: V = [Pg[0], gy + 0.45, Pg[2]];
+      const mid = Math.hypot(P[0] - T[0], P[1] - T[1], P[2] - T[2]);
+      if (mid <= radius * 0.2 + 1.5 + 0.8) continue; // not the mid-panel case
+      return { world, P, n, origin: T, radius, span: Math.min(u - uMin, uMax - u) };
+    }
+  }
+  return null;
+}
+
+describe('the gate on a BUILT stage railing (docs/orig/collision.md §4.1)', () => {
+  // The packs ship in git (public/assets, deployed by CI): a checkout without them must fail loudly, never skip.
+  it('the built stage packs for every railing family are present', () => {
+    const missing = RAIL_STAGES.map(([id]) => id).filter((id) => !fs.existsSync(`${railAsset(id)}.bin`) || !fs.existsSync(`${railAsset(id)}.json`));
+    expect(missing, 'missing public/assets/stages/<id>/collision.{bin,json}: run npm run assets').toEqual([]);
+  });
+  for (const kmh of [40, 140]) for (const [id, tpl] of RAIL_STAGES) {
+    it(`${id}: a Micra into the MIDDLE of a railing panel at ${kmh} km/h is held at its face`, () => {
+      const t = findRailingTarget(id, tpl);
+      expect(t, 'a mid-panel railing face').not.toBeNull();
+      if (!t) return;
+      const { world: w, P, n, origin, radius, span } = t;
+      // the panel's middle is beyond the old single-branch trunk gate: before the fix this drive passed through it
+      expect(Math.hypot(P[0] - origin[0], P[1] - origin[1], P[2] - origin[2])).toBeGreaterThan(radius * 0.2 + 1.5);
+      // a real Micra on the real stage, head-on into the face from 5 m out
+      const d: V = [-n[0], 0, -n[2]];
+      const S: V = [P[0] - d[0] * 5, 0, P[2] - d[2] * 5];
+      const c = new CarSim({
+        params: origCarParams('Micra'), world: w, surfaces: makeSurfaceTable(), origCar: 'Micra', slotBase: 0,
+      });
+      w.resetFaceCache();
+      c.reset({ pos: { x: S[0], y: w.heightAt(S[0], S[2], P[1] + 1) + 0.6, z: S[2] }, q: qYawSim(Math.atan2(d[0], d[2])) });
+      const A = c as unknown as { vW: { x: number; z: number }; W: { omega: number }[] };
+      const v = kmh / 3.6;
+      A.vW.x = d[0] * v;
+      A.vW.z = d[2] * v;
+      for (const wh of A.W) wh.omega = v / c.params.wheelRadius;
+      const sOf = (p: { x: number; z: number }) => (p.x - P[0]) * n[0] + (p.z - P[2]) * n[2];
+      const uOf = (p: { x: number; z: number }) => Math.abs((p.x - P[0]) * n[2] - (p.z - P[2]) * n[0]);
+      let minS = Infinity;
+      let lastOverS = NaN; // the face distance at the last step with the centre over the panel
+      let held = 0; // steps with the centre over the panel and pressed against its face (the centre 0 .. 4 m in front of the plane: the hull reaches ~2 m ahead of it)
+      for (let i = 0; i < 600; i++) {
+        c.step(drive(0.4), DT);
+        const p = c.telemetry().posSim;
+        // while the centre is over the panel (a car scraping along the face may slide around its END)
+        if (uOf(p) < span - 0.5) {
+          const s = sOf(p);
+          minS = Math.min(minS, s);
+          lastOverS = s;
+          if (s > -0.6 && s < 4) held++;
+        }
+      }
+      const tel = c.telemetry();
+      expect(tel.collision.objectHits).toBeGreaterThan(0); // the gate opened at the panel's middle
+      expect(minS).toBeGreaterThan(-0.6); // the car's centre never crosses the face plane over the panel
+      expect(Number.isFinite(lastOverS), 'the car reached the panel').toBe(true);
+      expect(lastOverS).toBeGreaterThan(-0.6); // and was in front of the face on its last step over the panel
+      expect(held).toBeGreaterThan(0); // it stayed pressed against the face (not a drive that never arrived)
+    });
+  }
 });

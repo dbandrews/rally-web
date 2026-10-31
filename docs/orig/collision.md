@@ -109,13 +109,20 @@ space: `sim = world − (2048, H, 2048)`, `v = v_local·diag(s)·R + pos`, `R = 
 The game loop runs the object pass after every physics substep (FUN_0049ffe0 → FUN_004a7980 → FUN_004a7bc0 per car):
 
 1. **Candidates** (0x4a7cdb, 0x4a7d51, game+0x940 = 16 set at 0x484143): every 16 substeps car k (k < 4; at counter
-   4k) refreshes its list with the objects within 16·0.25 m + the car's radius; the list is sorted by pointer
-   (descending). Cars ≥ 4 never refresh.
-2. **Gate** (0x4a7f1c-0x4a811a), static objects: a mesh object (its geometry answers the colour interface
-   0xa5c048fc, as every Standard/TreeMesh instance does) is tested only while the 3-D distance from its ORIGIN to the
-   car is ≤ 0.2·radius + 1.5 (radius = object +8, half the scaled render box diagonal = the MergeObjects tree leaf
-   radius; 0x7fc78c, 0x8070d0) and its render box corners are not all outside one face plane of the car's box
-   (FUN_005d5ef0 / 5f90 / 5fe0). Large objects are therefore tested only near their origin.
+   4k) refreshes its list with the objects within 16·0.25 m + the car's radius of the car's bounding centre; the list
+   is sorted by pointer (descending). Cars ≥ 4 never refresh.
+2. **Gate** (0x4a7f1c-0x4a811a), static objects — the colour component picks the branch. `getComponent` (the colour
+   hash, [geometry vtbl+8] → the 0xa5c048fc interface) answers non-zero only on a TreeMesh instance (its QI 0x5901b0;
+   StandardMesh 0x586e10 and AnimatedMesh 0x57fc00 answer 0; objects.md §3: colour only on TreeMesh placements):
+   - **TreeMesh** (0x4a8008): tested only while the 3-D distance from its ORIGIN to the car's bounding centre is
+     ≤ 0.2·radius + 1.5 (radius = object +8, half the scaled render box diagonal = the MergeObjects tree leaf radius;
+     0x7fc78c, 0x8070d0) — the trunk gate, so a tree is tested only near its trunk.
+   - **every other object** (StandardMesh: fences, railings, walls, signs, houses; 0x4a8049): tested while its
+     bounding sphere touches the car's — the distance from its box CENTRE (object +0xc/+0x10/+0x14) to the car body
+     object's centre (+0xc..+0x14) is ≤ radius + the car's radius (car object +8). A long railing piece is therefore
+     tested along its whole length, not only near its origin (which sits at one end of the panel).
+   In both branches the render box corners must not be all outside one face plane of the car's box
+   (FUN_005d5ef0 / 5f90 / 5fe0).
 3. **FUN_006d1a80**: for EVERY hull point (body+8 = 12, no scheduling) the segment from the previous COM
    (B+0xd8) to the point goes through the physics callback physics+0x8c (0x677c30) → the mesh instance's query
    0x5912a0 (it composes diag(geometry scale)·R + pos at 0x591c20, so scaled objects collide scaled) →
@@ -129,6 +136,21 @@ The game loop runs the object pass after every physics substep (FUN_0049ffe0 →
    the clamp changes the result]. It also runs (timer, B+0x19c = 0) when no hull point touched.
 5. **Record** (0x4a81a3-0x4a81e8): a contact sets the car record's object hit, `collisionMaterial` (raw) and
    B+0x19c (CarTelemetry.collision.objectHits / objectType / objectStrength).
+
+   *Continuous contact* [E 0x4a81a3-0x4a81e8 + sound.md Port findings 5]: the record is written on EVERY substep that has a hull contact
+   (the object pass runs per substep), and the flag stays set until the sound reader clears it (per frame, 0.5 s gate, strength >= 165
+   to be audible). `CarTelemetry.collision.objectHits` therefore counts contact SUBSTEPS (a car pinned against a rail counts 1 per
+   substep, ~100 in 1.3 s); the audio latches a change once per frame, exactly the original's set-every-substep / clear-per-frame
+   behaviour. A pinned car at 2-4 km/h has jn well under 265 N*s (strength < 165), so it is silent. It is not a defect.
+   The original has no reset for a car lying on its side other than the race rules (upside down 2.5 s, race.md 9a.4).
+
+   *Pass-through audit of the QA railing matrix* [D]: all 48 browser runs (`artifacts/qa2/railings/matrix/results.json`, 6 stage
+   families, Micra / Impreza / Audi, 40-140 km/h, glancing, head-on, reversing): every consecutive pair of trace positions (0.125 s)
+   was tested at 4 heights against every triangle of every instance within 60 m (instance transform as `objectMeshes.ts`, the
+   stage's z mirror taken from the hit points): 0 crossings. The two reverse-run "suspects" are geometry, not pass-through:
+   rallycross-1-f's `RCconcwallMiddle` chain (4-5 m pieces, x -232..-213) STARTS at x -212.7, the car went round its end and was
+   stopped by the chain's outer face (54 -> 10 km/h in 0.125 s); newzealand-1-f's `kn_riotfence_01` is a 10-panel cluster
+   (2.3 m panels) whose nearest panel is >= 6.1 m from the car's path.
 
 **0x597810** (`objectMeshes.ts`, [V executed: `tests/world/fixtures/orig/objmesh_cases.json`, 720 segments on 12 real
 meshes / placements, the BSP gather stubbed to hand over every triangle]): the segment goes into the mesh's local

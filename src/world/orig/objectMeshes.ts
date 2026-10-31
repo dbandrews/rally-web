@@ -27,7 +27,7 @@
  */
 import type { ObjectCollider, ObjectSegmentHit, SceneryKind, SimV3 } from '../../core/types';
 import { ProxyGrid } from './obstacles';
-import { INST, MESH_STRIDE, type RcolData } from './rcol';
+import { INST, INST_COLOUR, MESH_STRIDE, type RcolData } from './rcol';
 
 /** The query's initial best depth (0x597aae: 0x4e6e6b28 = 1e9). */
 const BEST0 = 1e9;
@@ -74,8 +74,9 @@ export class OrigObjectCollider implements ObjectCollider {
   readonly boxMin: SimV3;
   readonly boxMax: SimV3;
   readonly m: Float64Array;
-  /** The instance's flags (rcol.ts INST_COLOUR: the object pass's small gate applies; set on every mesh object). */
+  /** The instance's flags (rcol.ts INST_COLOUR: a TreeMesh geometry, the object pass's trunk gate applies). */
   readonly flags: number;
+  readonly treeMesh: boolean;
   readonly valid: boolean;
   private readonly set: OrigObjectMeshes;
   /** Unmirrored transform (query frame) and its inverse, rows. */
@@ -97,6 +98,7 @@ export class OrigObjectCollider implements ObjectCollider {
     this.kind = (kinds[A[b + INST.KIND]] ?? 'barrier') as SceneryKind;
     this.material = A[b + INST.MATERIAL];
     this.flags = A[b + INST.FLAGS];
+    this.treeMesh = (this.flags & INST_COLOUR) !== 0;
     this.radius = A[b + INST.RADIUS];
     this.qm = Float64Array.from(A.subarray(b + INST.M, b + INST.M + 9));
     this.qt = Float64Array.from(A.subarray(b + INST.T, b + INST.T + 3));

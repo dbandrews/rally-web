@@ -30,6 +30,7 @@ import { getAssetManifest } from './core/assets';
 import { FixedStepLoop } from './core/loop';
 import { clamp, copy3, lerp3, qCopy, qSlerp, type Quat, type V3 } from './core/math';
 import { deepMergeInto, getPath, partialFromPath, setPath, splitPath } from './core/paths';
+import { MAX_OPPONENTS, type AiOpponentSpec, type FieldEvent, type FieldHost, type FieldSnapshot } from './core/field';
 import { hashSeed } from './core/rng';
 import { mirror, mirrorQuat } from './core/space';
 import type {
@@ -45,6 +46,8 @@ import type {
   FrameContext,
   FrameStats,
   GameTunables,
+  GhostInfo,
+  ICarSim,
   IMenuHost,
   IRaceController,
   ITuningHost,
@@ -72,6 +75,7 @@ import { TuningPanel } from './debug/tuningPanel';
 import { Autopilot } from './game/autopilot';
 import { CarFlagSource } from './game/carFlags';
 import { runOutControls } from './game/driving';
+import { CarField } from './game/field';
 import { normalizeCarSelection, originalStagesFirst, withDefaultOrigCar } from './game/selection';
 import { RaceController, START_GRID_BACK_M } from './game/race';
 import { isTypingTarget } from './input/bindings';
@@ -79,6 +83,7 @@ import { InputManager } from './input/input';
 import { loadCarInfo } from './render/orig/car';
 import { GameRenderer } from './render/renderer';
 import { CarSim } from './sim/car';
+import { stepCarContacts } from './sim/contact';
 import { InputFilter, makeInputFilterConfig } from './sim/inputFilter';
 import { makeCarParams, makeSurfaceTable } from './sim/params';
 import { origCarArchetype, origCarParams } from './sim/presets';
@@ -90,8 +95,6 @@ import { attachOriginalWorld } from './world/orig';
 import { buildStage, listStages } from './world/stages';
 
 const PLAYER_ID = 'player';
-/** RaceController.ghostRenderState() uses this id. */
-const GHOST_ID = 'ghost';
 const TUNABLE_ROOTS = ['car', 'input', 'camera', 'surfaces', 'loop'] as const;
 type TunableRoot = (typeof TUNABLE_ROOTS)[number];
 /** Race events the test API keeps between two getRaceEvents() calls. */
@@ -100,6 +103,12 @@ const API_EVENTS_MAX = 1000;
 const AUTOPILOT_AGGRESSION = 'autopilot.aggression';
 
 // ------------------------------------------------------------------------------------------- URL params
+
+/** `?ai=0..3` → AI opponents (src/core/field.ts MAX_OPPONENTS); anything else = 0 (solo). */
+function opponentsParam(v: string | null): number {
+  const n = v === null ? 0 : Number(v);
+  return Number.isInteger(n) ? clamp(n, 0, MAX_OPPONENTS) : 0;
+}
 
 function parseLaunchOptions(search: string): LaunchOptions {
   const q = new URLSearchParams(search);
@@ -151,6 +160,7 @@ function parseLaunchOptions(search: string): LaunchOptions {
     transmission: trans,
     audio: bool('audio', true),
     ghost: bool('ghost', true),
+    opponents: opponentsParam(q.get('ai')),
   };
 }
 
@@ -164,6 +174,15 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   private readonly renderer: GameRenderer;
   private readonly race = new RaceController({ startGridBack: START_GRID_BACK_M });
   private readonly autopilot = new Autopilot();
+  /** PHASE 2: the AI opponents (src/game/field.ts; ai-race builder). Empty for a solo race. */
+  private readonly field = new CarField();
+  /** PHASE 2: the contact step's cars, [player, ...field.sims], rebuilt when the roster changes. */
+  private contactCars: ICarSim[] = [];
+  private fieldCtx: { player: { sim: ICarSim; telemetry: Readonly<CarTelemetry> }; race: Readonly<RaceState> } | null = null;
+  /** PHASE 2: renderer cars of the ghosts being shown (id → original car / archetype key). */
+  private readonly ghostCars = new Map<string, string>();
+  /** PHASE 2: renderer cars of the AI opponents (id → original car). */
+  private readonly aiCars = new Map<string, string>();
   private readonly hud: Hud;
   private readonly menu: Menu;
   private readonly overlay: TelemetryOverlay;
@@ -201,8 +220,6 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   private loadToken = 0;
   /** Largest impact impulse over the substeps since the last rendered frame (FrameContext.impactImpulseMax). */
   private frameImpact = 0;
-  /** The ghost car mesh is in the renderer (added while the race controller has a ghost pose). */
-  private ghostInRenderer = false;
   /** Original car the current CarSim was built for (RaceSelection.car; tuned params are kept only for the same car). */
   private simCar: string | undefined;
   /** `?car=` was given: the URL's choice stands (no default original car). */
@@ -258,6 +275,7 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       setup: {},
       steerSensFast: true,
       seed: opts.seed,
+      ...(opts.opponents ? { opponents: opts.opponents } : {}),
     };
     // 3-D audio listener = the render camera (CamListener.con)
     this.audio.setListenerSource(() => rendererListener(this.renderer));
@@ -338,11 +356,13 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       // loads the car with the race, so no procedural stand-in is ever seen (addCar settles once the original
       // visual is attached or the fallback decided; frames stay off while `loading`)
       const stageLoad = this.renderer.loadStage(this.stage);
-      this.renderer.removeCar(GHOST_ID);
-      this.ghostInRenderer = false;
+      this.clearGhostCars();
       this.renderer.removeCar(PLAYER_ID);
       const carLoad = this.renderer.addCar(PLAYER_ID, sel.archetype, { player: true, origCar: sel.car });
-      await Promise.all([stageLoad, carLoad]);
+      // PHASE 2: the AI opponents (roster, AiData, their sims and renderer cars) load alongside; none for a solo race
+      const fieldLoad = this.prepareField(sel);
+      const ghostLoad = this.race.prepareGhost(sel.ghost); // PHASE 2 (ghosts): the team / saved ghost file, so the race starts with it
+      await Promise.all([stageLoad, carLoad, fieldLoad, ghostLoad]);
       if (token !== this.loadToken) return; // a newer load owns the renderer / stage / car now
       this.beginRace(sel, o);
     } finally {
@@ -371,8 +391,17 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   /** A new race of the loaded stage with the current car (placed at the start, parked; countdown or idle). */
   private beginRace(sel: RaceSelection, o: { countdown: boolean }): void {
     // best times / ghost keyed by the original car (IRaceController.begin origCar; race builder)
-    const beginOpts: Parameters<IRaceController['begin']>[2] = { countdown: o.countdown, world: this.world, origCar: sel.car };
+    const beginOpts: Parameters<IRaceController['begin']>[2] = {
+      countdown: o.countdown,
+      world: this.world,
+      origCar: sel.car,
+      gridIndex: 0,
+      gridCount: 1 + this.field.opponents.length,
+      ...(sel.ghost ? { ghost: sel.ghost } : {}),
+    };
     this.race.begin(this.stage, this.car, beginOpts);
+    this.contactCars = [this.car, ...this.field.sims]; // PHASE 2: the contact step's cars
+    this.field.begin(this.race.state); // PHASE 2: the AI cars on their grid slots, parked
     this.filter.reset();
     this.autopilot.reset();
     this.autopilot.world = this.world; // obstacle avoidance (the original stages' object proxies)
@@ -393,23 +422,107 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
    */
   private async restartInPlace(sel: RaceSelection): Promise<void> {
     const carChanged = sel.archetype !== this.car.params.archetype || sel.car !== this.simCar;
-    if (carChanged) {
-      // a new car: its visual is in before the race begins, as in loadSelection (no procedural stand-in)
+    // PHASE 2: the AI field is rebuilt for every race (new sims, a possibly different roster); a solo race that stays solo
+    // skips the whole branch
+    const fieldChanged = !!sel.opponents || this.field.opponents.length > 0;
+    if (carChanged || fieldChanged) {
+      // a new car / field: the visuals are in before the race begins, as in loadSelection (no procedural stand-in)
       const token = ++this.loadToken;
       this.loading = true;
       try {
-        this.renderer.removeCar(GHOST_ID);
-        this.ghostInRenderer = false;
-        this.renderer.removeCar(PLAYER_ID);
-        await this.renderer.addCar(PLAYER_ID, sel.archetype, { player: true, origCar: sel.car });
+        if (carChanged) {
+          this.clearGhostCars();
+          this.renderer.removeCar(PLAYER_ID);
+          await Promise.all([this.renderer.addCar(PLAYER_ID, sel.archetype, { player: true, origCar: sel.car }), this.prepareField(sel)]);
+        } else await this.prepareField(sel);
         if (token !== this.loadToken) return; // a newer load owns the renderer / car now
       } finally {
         if (token === this.loadToken) this.loading = false;
       }
     }
+    if (sel.ghost?.source === 'team' || sel.ghost?.source === 'user') await this.race.prepareGhost(sel.ghost); // PHASE 2 (ghosts): the file is in place before the race begins
     this.makeCar(sel);
     this.beginRace(sel, { countdown: true });
     this.renderer.resetStageEffects();
+  }
+
+  // ----------------------------------------------------------------------------------------- PHASE 2: field + ghosts
+  // (docs/PHASE2_AI.md: the integration glue below is the architect's; the logic lives in src/game/field.ts, ai/*, ghosts)
+
+  /** What the field needs from main.ts to build an AI CarSim (src/game never constructs one). */
+  private readonly fieldHost: FieldHost = {
+    createCar: (spec, world, sel) => {
+      const params = origCarParams(spec.origCar);
+      deepMergeInto(params, { tyreType: sel.tyre, transmission: 'auto' as Transmission });
+      // a private surface table (the AI friction mode rewrites its tyre rows; tuning-panel edits stay the player's)
+      return new CarSim({
+        id: spec.id,
+        params,
+        world,
+        surfaces: makeSurfaceTable(),
+        seed: sel.seed + spec.gridIndex,
+        origCar: spec.origCar,
+        slotBase: spec.slotBase,
+        aiFriction: true,
+      });
+    },
+  };
+
+  /**
+   * Build the AI field of `sel` (CarField.prepare) and put the opponents' cars into the renderer, awaited with the stage
+   * and the player car (no procedural stand-in is ever seen). A solo selection resolves at once and removes any AI cars.
+   */
+  private async prepareField(sel: RaceSelection): Promise<void> {
+    const n = sel.opponents && sel.opponents > 0 ? clamp(Math.floor(sel.opponents), 0, MAX_OPPONENTS) : 0;
+    this.field.nameOf = (id) => this.carList.find((c) => c.id === id)?.name ?? id; // standings: the locale car names
+    const specs = await this.field.prepare({ ...sel, opponents: n }, this.stage, this.world, this.fieldHost);
+    const keep = new Map(specs.map((sp) => [sp.id, sp]));
+    for (const [id, origCar] of [...this.aiCars]) {
+      if (keep.get(id)?.origCar !== origCar) {
+        this.renderer.removeCar(id);
+        this.aiCars.delete(id);
+      }
+    }
+    await Promise.all(specs.filter((sp) => !this.aiCars.has(sp.id)).map((sp) => this.addAiCar(sp)));
+  }
+
+  private addAiCar(sp: AiOpponentSpec): Promise<void> {
+    this.aiCars.set(sp.id, sp.origCar);
+    return Promise.resolve(this.renderer.addCar(sp.id, sp.archetype, { ai: true, player: false, origCar: sp.origCar, carIndex: sp.gridIndex }));
+  }
+
+  /** The per-substep context of CarField.step / afterStep (one reused object). */
+  private fieldContext(tel: Readonly<CarTelemetry>): NonNullable<typeof this.fieldCtx> {
+    const c = (this.fieldCtx ??= { player: { sim: this.car, telemetry: tel }, race: this.race.state });
+    c.player.sim = this.car;
+    c.player.telemetry = tel;
+    c.race = this.race.state;
+    return c;
+  }
+
+  /** Keep the renderer's ghost cars in step with RaceController.ghostRenderStates (added when first shown, replaced when
+   *  the ghost's car changes, removed when it disappears). Not awaited: a ghost's stand-in stays hidden until loaded. */
+  private syncGhostCars(states: readonly CarRenderState[]): void {
+    const seen = new Set<string>();
+    for (const g of states) {
+      seen.add(g.id);
+      const key = g.origCar ?? g.archetype;
+      const have = this.ghostCars.get(g.id);
+      if (have === key) continue;
+      if (have !== undefined) this.renderer.removeCar(g.id);
+      void this.renderer.addCar(g.id, g.archetype, { ghost: true, player: false, origCar: g.origCar });
+      this.ghostCars.set(g.id, key);
+    }
+    for (const id of [...this.ghostCars.keys()]) {
+      if (seen.has(id)) continue;
+      this.renderer.removeCar(id);
+      this.ghostCars.delete(id);
+    }
+  }
+
+  private clearGhostCars(): void {
+    for (const id of this.ghostCars.keys()) this.renderer.removeCar(id);
+    this.ghostCars.clear();
   }
 
   private snapInterpolation(): void {
@@ -479,9 +592,20 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     this.prevPos = copy3(before.posSim);
     this.prevQuat = qCopy(before.quatSim);
     this.car.step(controls, DT);
-    const tel = this.car.telemetry();
+    let tel = this.car.telemetry();
+    // PHASE 2 (the original's order, FUN_0049ffe0): every car's physics, then the car-car contacts, then the race logic
+    const fctx = this.field.sims.length ? this.fieldContext(tel) : null;
+    if (fctx) {
+      this.field.step(DT, fctx);
+      stepCarContacts(this.contactCars, DT);
+      // the contacts rewrote the player's pose / velocity / impact fields through the live body view (telemetry cache
+      // invalidated): the race logic below must see the post-contact car, not the pre-contact snapshot
+      tel = this.car.telemetry();
+      fctx.player.telemetry = tel;
+    }
     if (tel.impactImpulse > this.frameImpact) this.frameImpact = tel.impactImpulse;
     this.race.fixedUpdate(DT, tel);
+    if (fctx) this.field.afterStep(DT, fctx);
     this.overlay.sample(tel);
     this.physicsSteps++;
     const after = this.car.telemetry();
@@ -503,6 +627,7 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     const qSim = qSlerp(this.prevQuat, tel.quatSim, alpha);
     // the car update's backfire / blow-out flags (one source for the pipe sounds and flames); frozen while paused
     const carFlags = this.carFlags.update(this.loop.paused ? 0 : frameDt, tel);
+    const fieldEvents: FieldEvent[] = this.field.sims.length ? this.field.drainEvents() : [];
     const cars: CarRenderState[] = [
       {
         id: PLAYER_ID,
@@ -518,17 +643,16 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       },
     ];
     this.justReset = false;
-    // best-run ghost (recorded by the race controller; shown while it has a pose for the race clock)
-    const ghost = this.opts.ghost ? this.race.ghostRenderState(tel, alpha) : null;
-    if (ghost && !this.ghostInRenderer) {
-      // not awaited: the ghost's procedural stand-in stays hidden until its original visual is in
-      void this.renderer.addCar(GHOST_ID, ghost.archetype, { ghost: true, player: false, origCar: ghost.origCar });
-      this.ghostInRenderer = true;
-    } else if (!ghost && this.ghostInRenderer) {
-      this.renderer.removeCar(GHOST_ID);
-      this.ghostInRenderer = false;
+    // PHASE 2: the AI opponents (interpolated render states; their renderer cars were added by prepareField)
+    const hasField = this.field.sims.length > 0;
+    if (hasField) {
+      this.field.setFrame(frameDt, this.loop.paused); // the AI flag timers advance by this frame's dt, frozen while paused (as the player's)
+      for (const c of this.field.renderStates(alpha)) cars.push(c);
     }
-    if (ghost) cars.push(ghost);
+    // ghosts (recorded / loaded by the race controller; shown while it has a pose for the race clock)
+    const ghosts = this.opts.ghost ? this.race.ghostRenderStates(tel, alpha) : [];
+    this.syncGhostCars(ghosts);
+    for (const g of ghosts) cars.push(g);
     this.renderer.update(frameDt, alpha, cars);
     const ctx: FrameContext = {
       frameDt,
@@ -548,6 +672,7 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       // the player car's original car (per-car engine / turbo patches, research/formats/sound.md §4)
       ...(this.simCar ? { origCar: this.simCar } : {}),
       carFlags,
+      ...(hasField ? { others: this.field.otherFrames(frameDt, this.loop.paused), field: this.field.snapshot(), fieldEvents } : {}),
     };
     this.hud.update(ctx);
     this.menu.update(ctx);
@@ -625,6 +750,19 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   }
   isAudioEnabled(): boolean {
     return this.audio.enabled;
+  }
+  // PHASE 2 ghost host (IMenuHost): the logic is the race controller's ghost region (ghosts builder)
+  listGhosts(stageId: string) {
+    return this.race.listGhosts(stageId);
+  }
+  canSaveGhost(): boolean {
+    return this.race.canSaveGhost();
+  }
+  saveSessionGhost(name: string): Promise<boolean> {
+    return this.race.saveSessionGhost(name);
+  }
+  deleteGhost(id: string): Promise<void> {
+    return this.race.deleteGhost(id);
   }
 
   // ----------------------------------------------------------------------------------------- ITuningHost
@@ -831,6 +969,8 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       tyre: o.tyre ?? (id === this.selection.stageId ? this.selection.tyre : entry.defaultTyre),
       seed: o.seed ?? this.selection.seed,
       transmission: o.transmission ?? this.selection.transmission,
+      ...(o.opponents !== undefined ? { opponents: o.opponents } : {}),
+      ...(o.ghost !== undefined ? { ghost: o.ghost } : {}),
     };
     this.menu.hide();
     await this.loadSelection(sel, { countdown: o.countdown ?? false });
@@ -873,6 +1013,12 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     const out = this.apiEvents;
     this.apiEvents = [];
     return out;
+  }
+  fieldSnapshot(): FieldSnapshot {
+    return this.field.snapshot();
+  }
+  ghostInfos(): GhostInfo[] {
+    return this.opts.ghost ? this.race.ghostInfos() : []; // ?ghost=0 hides every ghost (PHASE 2, ghosts)
   }
   carInfo(): CarInfo {
     return {

@@ -67,6 +67,8 @@ export class CarInputMapper {
   private lastMaterial = 1; // ASPHALT until the first contact
   /** collision.objectHits at the last map (−1 = none seen yet): a change is a new object record. */
   private lastObjectHits = -1;
+  /** collision.carHits at the last map (−1 = none seen yet): a change is a new car-car record (phase 2). */
+  private lastCarHits = -1;
   readonly input: CarSoundInput = {
     rpm: 0,
     speedKmh: 0,
@@ -81,6 +83,7 @@ export class CarInputMapper {
     outside: true,
     raining: false,
     impact: null,
+    carHit: null,
     body: null,
     inBush: false,
     pos: { x: 0, y: 0, z: 0 },
@@ -120,12 +123,16 @@ export class CarInputMapper {
       const hits = col.objectHits;
       o.impact = this.lastObjectHits >= 0 && hits > this.lastObjectHits ? { type: col.objectType, strength: col.objectStrength } : null;
       this.lastObjectHits = hits;
+      const ch = col.carHits ?? 0;
+      o.carHit = this.lastCarHits >= 0 && ch > this.lastCarHits ? { strength: col.carStrength ?? 0 } : null;
+      this.lastCarHits = ch;
       o.body = { contact: col.hull, type: col.hullMaterial, strength: col.hullStrength };
       o.inBush = col.bush;
     } else {
       const imp = Math.max(ctx.impactImpulseMax ?? 0, tel.impactImpulse ?? 0);
       o.impact = imp > IMPACT_MIN_IMPULSE ? { type: this.lastMaterial, strength: imp / IMPULSE_PER_STRENGTH } : null;
       o.body = null;
+      o.carHit = null;
       o.inBush = false;
     }
     if (ctx.carFlags) {

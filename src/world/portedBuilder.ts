@@ -611,6 +611,8 @@ export interface PortedRaceSettings {
   readonly spawnS: number;
   /** Physics.bodyBrakingFactorForTrack: the post-finish track braking factor (0.4; hillclimb3cf 0.1). */
   readonly trackBraking: number;
+  /** race.spawnGrid verbatim [s, column lateral, row spacing] (m): the grid of a multi-car race (src/game/grid.ts). */
+  readonly spawnGrid: readonly [number, number, number];
   /** Distance shift applied to the archive numbers (0 = ported verbatim). */
   readonly shift: number;
 }
@@ -640,6 +642,7 @@ export function portedRaceSettings(data: PortedTrackData, length: number): Porte
       validRange: [0, length],
       spawnS: mod(data.spawnS),
       trackBraking: data.bodyBraking,
+      spawnGrid: data.spawnGrid,
       shift: 0,
     };
   }
@@ -649,7 +652,7 @@ export function portedRaceSettings(data: PortedTrackData, length: number): Porte
   const spawnS = data.spawnS + shift;
   const checkpoints = data.triggers.slice(1, -1).map((t) => t + shift);
   const validRange: [number, number] = [data.validRange[0] + shift, data.validRange[1] + shift];
-  return { startS, finishS, checkpoints, validRange, spawnS, trackBraking: data.bodyBraking, shift };
+  return { startS, finishS, checkpoints, validRange, spawnS, trackBraking: data.bodyBraking, spawnGrid: data.spawnGrid, shift };
 }
 
 /**
@@ -663,12 +666,15 @@ export function portedRaceSettings(data: PortedTrackData, length: number): Porte
 export interface PortedStage {
   readonly spawnS: number;
   readonly trackBraking: number;
+  /** race.spawnGrid verbatim [s, lateral, spacing] (the grid of a multi-car race, src/game/grid.ts). */
+  readonly spawnGrid: readonly [number, number, number];
 }
 
 function withSpawn(stage: ProcStage, rs: PortedRaceSettings): ProcStage & PortedStage {
-  const s = stage as ProcStage & { spawnS: number; trackBraking: number; startPose: ProcStage['startPose'] };
+  const s = stage as ProcStage & { spawnS: number; trackBraking: number; spawnGrid: readonly [number, number, number]; startPose: ProcStage['startPose'] };
   s.spawnS = rs.spawnS;
   s.trackBraking = rs.trackBraking;
+  s.spawnGrid = rs.spawnGrid;
   s.startPose = { pos: stage.pointAt(rs.spawnS), dir: stage.tangentAt(rs.spawnS) };
   return s;
 }

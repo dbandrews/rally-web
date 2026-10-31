@@ -1115,8 +1115,9 @@ Not ported: the material-0x23 branch at the top of FUN_006d0970 (body flag 0x100
 splash point; no collision data produces 0x23) and the impact-effect outputs B+0x190..0x1d0 (spark / scrape trigger,
 contact type 0/1/2, contact points; the effects / audio side). Car-car and object contacts are handled outside the
 physics step in the original (FUN_004a7980, §8 #10). Static objects (ported 2026-10-30, `CarSim.objectPass`,
-docs/orig/collision.md §4): after each substep the object pass FUN_004a7bc0 gates each candidate (|origin − car| ≤
-0.2·radius + 1.5, render box against the car box), FUN_006d1a80 sends EVERY hull point's segment (previous COM →
+docs/orig/collision.md §4): after each substep the object pass FUN_004a7bc0 gates each candidate (a TreeMesh:
+|origin − car centre| ≤ 0.2·radius + 1.5; any other object: |centre − car centre| ≤ radius + car radius; then the
+render box against the car box), FUN_006d1a80 sends EVERY hull point's segment (previous COM →
 point) through the object's own CollisionMesh.Simple (query 0x597810), accumulates the contacts exactly as above
 (material = collisionMaterial when 0..22, else 1) and calls **FUN_006d21c0** = this solver with its own anchor timer
 B+0x138 (shared anchor memory) and the friction impulse clamped to ±1000 per component before vW [V executed:
@@ -2497,3 +2498,105 @@ Results (human car FordEscort, rallycross1, run 1 / run 2; before → after):
 Still not covered by runtime data: the anchor friction on real contacts (only executed cases), the material-0x23
 branch, damage, manual gearbox, and every surface other than GRASS / ASPHALT / GRAVEL (their rows are verified
 against PhysicsParam.con, §4.3).
+
+---
+
+## Appendix D. Car-car contact (phase 2, `sim-contact`)
+
+Added in phase 2 (docs/PHASE2_AI.md). Normative spec: `research/formats/dynamics.md` §6.2-§6.3 and §7 (the original's
+FUN_006d4390 body-body contact and FUN_004a7980's car-car loop); this appendix says how the sim implements it. Tags: **[E]**
+exe-verified (addresses), **[X]** executed in unicorn, **[T]** checked against the Frida trace of the original, **[I]**
+inferred. Code: `src/sim/contact.ts` (the pair loop), `src/sim/contact/solve.ts` (FUN_006d4390 / FUN_006d4fd0 / FUN_006d5240,
+a line-by-line port of `research/tools/dyn_ref.py`), `src/sim/contact/hull.ts` + generated `carHulls.ts` (the full
+`Car_<Name>.col` hulls), `CarSim.contactBody()` (the live view, the "contact body (phase 2)" region at the end of the class).
+
+### D.1 The pair loop [E FUN_004a7980 0x4a7980-0x4a7bbe]
+
+```ts
+stepCarContacts(cars: readonly ICarSim[], dt): CarContactResult   // once per 120 Hz substep, after EVERY car has stepped
+for (i = 0; i < n; i++)                                           // list order = [player, ...AI]
+  if (cars[i].collidable)                                         // car+0x161, 1 from the constructor [E 0x74e478]
+    for (j = i; j < n; j++)                                       // starts at i: the self pair is skipped
+      if (cars[j].collidable && body[j] !== body[i] && contact(1, body[i], body[j]))
+        { carHits++ and carStrength = B+0x19c of that body, on BOTH cars }
+```
+
+`contact` is FUN_006d4390 with flag 1. Unknown session flag `*(*0x8e4e14)+4 & 2` (skips the loop in the original; meaning [I],
+dynamics.md §13) is not ported. `-multiplayer` (cap 10000 instead of 30000 N·s) is `setContactMultiplayer(true)`; default off.
+
+### D.2 The body [E dynamics.md §7, §6.3]
+
+All **18 points and 10 planes** of the car's `Car_<Name>.col` (FUN_006c45a0 → FUN_006d3f00 with the file's own counts), not
+the 12 ground-probe points of `origHulls.ts`; planes by FUN_006d68e0 (float32), radius B+0x18 = max |p| over the 18 points
+(FUN_006ca5e0). All 29 car hulls are outward-wound [D, dyn_survey]. Archetype cars (no `.col`) use the box of their probe
+points as 8 points / 6 planes [I, tests only]. Mass, inverse inertia and the lagged angular velocity B+0x44 are the car's
+own; the rotation rows are `right / up / fwd`; L and w are body-frame like the exe's. Vectors are shared with the car
+(`pos`, `vW`, `L`, `w`, `invI`, axes, the anchor memory `bsPrevN` / `bsPrevC`), so the contact writes `v`, `L`, `pos.x/z`,
+`prevN` (plane normal, or the 1.5 marker on the penetrating body) and `prevC` directly; the anchor timer B+0x134 := 0.2 is
+committed to `bsT` (the next ground solve then expires the anchor before it reads the overwritten `prevN`/`prevC`
+[E dynamics.md §6.3]) and the telemetry cache is dropped, so the next `step()` / `telemetry()` see the new state. The
+angular velocity is not touched (each car recomputes w = I⁻¹L at its next step) [E].
+
+### D.3 Record [E dynamics.md §7, sound.md §7]
+
+`telemetry().collision.carHits` counts the contacts the car took part in (every substep of a sustained contact counts once
+per pair); `carStrength` = this body's B+0x19c **after the latest contact** (max(entry value, j)), i.e. the record keeps the
+latest contact's strength: a first hit of 3 534 N·s followed by separating substeps (j = 0) leaves 0 behind. That is the
+original's behaviour (the record is overwritten by every contact), so a sound reader must read it at the hit (latch on a
+change of `carHits`) or track its own maximum between reads. The fields are absent until the car has been through a
+contact step (solo races never create the view; solo telemetry is bit-identical, D.5).
+
+### D.4 What the contact does to the car, in practice
+
+Measured on two Micras on a flat world (tests/sim/contact.sim.test.ts): a rear-end hit at 16 vs 5 m/s gives j = 3 534 N·s on
+the first substep and the pair rolls on together at ≈ 10 m/s (the contact is inelastic by design: j = 0.8·v_rel /
+(1/mA + 1/mB + rotation), the closing speed is reduced to ≈ 20 %, the overlap is then removed by the x/z position split by
+mass ratio); a head-on at 14 + 14 m/s stays below the 30 000 cap; total kinetic energy never increases across a contact step;
+a resting pair interpenetrating by 0.5 m is pushed apart in x/z with bounded velocities for 4 s.
+
+### D.5 Proof
+
+| claim | evidence |
+|---|---|
+| FUN_006d4390 / 4fd0 / 5240 on two **real car hulls** (18 points, 10 planes) equal the original | `research/tools/contact_emu.py` runs the exe function in unicorn: **8 000 random cases, 3 928 contacts** (slot 0: 2 346, slot 1: 1 582, i.e. both plane-owner branches; 129 at the 30 000 / 10 000 caps; 1 222 with j clamped to 0; 246 both-asleep early-outs; 3 826 sphere-only near misses; 29 hulls; 7 scenarios head-on / rear / side / T-bone / stacked / random / far; 25 % with `-multiplayer`): **0 disagreements** with dyn_ref (rel 5e-4), **0 plane-test ties** [X] |
+| the TS port equals the executed original | `tests/sim/contact.fixtures.test.ts`: 2 200 of those cases (2 047 contacts) in `fixtures/contact/carcar.json.gz` (998 KB) replayed on the exact float32 inputs: max deviation v 1.0e-6, L 9.9e-6, B+0x19c 1.6e-5 (relative), position 7.8e-7 m, prevN 5e-7, flags / sleep / anchor timer exact [X] |
+| the original **game** does the same | `research/tools/contact_trace.py` on the Frida trace of a 4-car rallycross race (run2, FordEscort / Micra / Beetle / Corolla; the hull of each car identified from the recorded mass + radius B+0x18): contacts run on the post-step snapshots in the original's pair order, compared with the next pre-step snapshots. 27 338 substeps have touching bounding spheres: **26 583 without contact in both** (port and original), **271 contacts reproduced** (v ≤ 2.7e-4 m/s, L ≤ 1.01 N·m·s, position push ≤ 5.0e-4 m, B+0x19c ≤ 0.34 N·s), 483 within 2 mm of a decision boundary (below), 1 differing only in the bookkeeping value B+0x19c. `tests/sim/contact.trace.test.ts` replays 332 stored cases (`trace_run2.json.gz`, 237 KB) [T] |
+| two real `CarSim`s | `tests/sim/contact.sim.test.ts`: rear-end, head-on, side-swipe on a flat world and on `newzealand-1-f` (Track.gcm through src/world/orig): finite impulses ≤ 30 000, simFaults 0, no energy gain, not closing afterwards, carHits / carStrength on both cars; resting stacked pair bounded; telemetry cache invalidation; multiplayer cap; solo identity; 200 000 calls × 4 overlapping cars with a heap growth below 4 MB (no per-call allocation) |
+| solo runs unchanged | 3 stages × 2 400 steps of a real Micra (corsica-1-f, newzealand-1-f with 102 object hits, hillclimb-1a-f with 22) with the full telemetry JSON hashed every step: identical with and without the contact region of `car.ts` (no view is created in a solo run, `carHits` stays absent) |
+| in the browser, with the real AI | `artifacts/phase2/sim-contact/collision_*.png`: a Ford Focus AI car (111 km/h) hits the stationary player Micra from behind on rallycross-1-f; carHits / carStrength set, 0 console errors |
+
+**Decision-boundary ties [X, T].** The overlap picks the plane owner by the smaller of two exit depths (FUN_006d4fd0:
+`depth0 < depth1`). For two parallel faces pressed against each other (nose to tail) both depths are equal up to the float
+noise: in the trace the pair at k = 43018 has depths 0.059738 and 0.059672 (6.6e-5 apart) while the original stores car
+positions as float32 (ulp 2.4e-4 m at 2 000 m) and computes in x87; our float64 pick can be the other slot. Both picks are
+valid contacts (impulse magnitudes differ by a few percent, the lever arm of the torque by up to 0.1 m: L differs by up to
+a few hundred N·m·s on the 4 700 N·s hit). The 483 trace substeps in that class are shallow multi-car piles (depths below
+2 mm). Not reproducible without float32 state; no "bit-faithful" mode is provided (dynamics.md §10.3).
+
+### D.6 Deviations from the original (tagged)
+
+* **Object-pass interleave [I].** The original runs `car i object pass → car i vs cars j ≥ i`, car after car. rally-web's
+  `CarSim.step()` includes the car's own object pass, so every car's object pass happens before any car-car contact of the
+  substep. The two orders differ only for a car that touches a static object and another car in the same substep: its object
+  solver then sees the pre-contact velocity (and the contact sees the post-object-solver one) instead of the reverse, one
+  impulse application (≤ one substep) earlier or later. No change to energy, no new contact, bounded by the same 30 000 N·s
+  cap. Not worth splitting `step()` (that would touch the railing fixer's objectPass); the 271 trace contacts agree to 5e-4
+  m with the unsplit order.
+* **B+0x19c / B+0x144 sharing [I].** The exe's B+0x19c / 0x144 are written by the ground solver, the object solver and the
+  contact alike (and cleared by each solver call). The sim keeps the ground and the object strengths in separate fields
+  (`bodyStrength`, `objSolveStrength`); the contact reads the ground one as its entry value (`imp19c`) and keeps its own
+  record (`carStrength`) without writing `hullMaterial` (0x40) / `hullStrength` back, so `collision.hull*` keeps describing
+  the ground contact. Differs from the original only when a ground-slam strength above the contact's j coincides with the
+  contact (the record's maximum then keeps the slam's strength) and in the one bookkeeping case of the trace.
+* **Float64 / sim frame [I]** as for the loose parts (dynamics.md §10.3): matches single calls to ≤ 2e-5 relative, not
+  the float32 chaos of near-tie contacts.
+* The 0x190 / 0x194 / 0x1a0 record maxima and the contact points B+0x1a4 / 0x1b0 / 0x1bc are written into the view
+  (`ContactBody`) and reset every substep; nothing in rally-web reads them (damage and skid sounds of the original do).
+
+### 4.2a AI friction option (phase 2: `CarSimOptions.aiFriction`)
+
+The AI friction mode of §4.2 is a first-class sim option: `CarSim` built with `aiFriction: true` takes a **private deep copy** of the surface table with the tarmac
+(ASPHALT) tyre row's `bestStatic / diffStatic / scaleKinetic / bestRollK` on every surface [E 0x6c4978-0x6c49ac] and `frictionLevel = min(FL, 0)` [E 0x6cb6cb]
+(`aiFrictionTable` in `src/sim/car.ts`, also applied by `setSurfaces`). Off (default): bit-identical to a car built without the option. The replay tool
+`research/frida/replay.ts` uses it (`aiFriction: first.aiMode === 1`) instead of its former in-place table rewrite. Tests: `tests/game/ai/aiFriction.test.ts`; AI
+notes: `docs/orig/ai.md`.

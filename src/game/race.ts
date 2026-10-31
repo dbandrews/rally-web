@@ -14,7 +14,7 @@
  * a [D] player "stuck" rule (upside down for 2.5 s, or crawling < 3 km/h for 10 s with a pedal pressed →
  * reset in place),
  * §5.7 pacenote triggering (|lateral| < 20 m, fire once, never replayed after a reset), wrong-way detection,
- * top speed, and ghost recording / playback of the best run (30 Hz).
+ * top speed, and ghost recording / playback (the original's 15 Hz delta format, tick-driven: src/game/ghosts/).
  * Testpad stages ('testpad' discipline) disable the automatic resets, wrong way and the finish.
  * Start (docs/orig/race.md §1): the clock runs from GO; trigger 0 (stage.startS) is the original's start
  * EVENT and times nothing (FUN_004b4170 has no case for it); a ported stage's car waits at its spawn grid
@@ -54,18 +54,23 @@ import type {
   ArchetypeId,
   CarRenderState,
   CarTelemetry,
+  GhostInfo,
   ICarSim,
   IRaceController,
+  RaceBeginOptions,
   RaceEvent,
   RaceState,
   ResetReason,
   Stage,
   StageProjection,
-  WheelTelemetry,
   WorldQuery,
 } from '../core/types';
 import { BestTimes, type BestRecord } from './bestTimes';
-import { GHOST_STEP_DIV, GhostRecorder, sampleGhost, type GhostPose, type GhostTrack } from './ghost';
+import type { GhostPose } from './ghosts/frame';
+import { GhostSession } from './ghosts/session';
+import { UserGhostStore, sharedUserGhostStore } from './ghosts/store';
+import type { GhostListEntry, GhostSelection } from '../core/ghosts';
+import { gridSimPose, gridSlot, stageGrid } from './grid';
 import { PacenoteCaller } from './pacenotes';
 import { forwardOfThree, liftAboveGround, upYOfQuat } from './stageMath';
 import { defaultStore, type KeyValueStore } from './storage';
@@ -140,6 +145,8 @@ export interface RaceControllerOptions {
   store?: KeyValueStore;
   /** Record and replay ghosts (default true). */
   ghost?: boolean;
+  /** Where SAVE GHOST keeps the player's ghosts (default: the page-wide IndexedDB store; a test passes its own). */
+  ghostStore?: UserGhostStore;
   /** [D] stuck auto-resets for the player (default true). */
   stuckReset?: boolean;
   /** Metres behind the start line the car waits at the start (default 0; the game uses START_GRID_BACK_M). */
@@ -188,32 +195,36 @@ export class RaceController implements IRaceController {
   private rightT = 0;
   private flipT = 0;
   private crawlT = 0;
-  // ghost
-  private readonly recorder = new GhostRecorder();
-  private ghost: GhostTrack | null = null;
-  private readonly ghostOut: GhostPose = { pos: { x: 0, y: 0, z: 0 }, quat: { w: 1, x: 0, y: 0, z: 0 }, steerAngle: 0 };
-  private ghostRs: CarRenderState | null = null;
-  private ghostSpin = 0;
+  // ghost (src/game/ghosts/session.ts: recorder, playback, session best, shipped + saved ghosts)
+  private readonly gs: GhostSession;
+  /** PHASE 2 (ghosts builder): which ghost this race plays against (RaceBeginOptions.ghost; absent = the stored best). */
+  private ghostSel: GhostSelection | undefined;
   private readonly fwd = { x: 0, y: 0, z: -1 };
   private readonly startGridBack: number;
+  /** PHASE 2 grid (RaceBeginOptions): the player's slot and the number of cars on the grid; 1 car = the solo grid. */
+  private gridIndex = 0;
+  private gridCount = 1;
 
   constructor(opts: RaceControllerOptions = {}) {
     this.best = new BestTimes(opts.store ?? defaultStore());
     this.ghostEnabled = opts.ghost !== false;
+    this.gs = new GhostSession({ enabled: this.ghostEnabled, best: this.best, users: opts.ghostStore ?? (opts.store ? new UserGhostStore() : sharedUserGhostStore()) });
     this.stuckResetEnabled = opts.stuckReset !== false;
     this.startGridBack = Math.max(0, opts.startGridBack ?? 0);
   }
 
   // =================================================================================== lifecycle
 
-  begin(stage: Stage, car: ICarSim, opts: { countdown: boolean; world?: WorldQuery; origCar?: string }): void {
+  begin(stage: Stage, car: ICarSim, opts: RaceBeginOptions): void {
     this.stage = stage;
+    this.gridIndex = Math.max(0, Math.floor(opts.gridIndex ?? 0));
+    this.gridCount = Math.max(1, Math.floor(opts.gridCount ?? 1));
+    this.ghostSel = opts.ghost;
     this.car = car;
     this.world = opts.world ?? null;
     this.archetype = car.archetype ?? car.params.archetype;
     this.origCar = opts.origCar || undefined;
     this.carKey = this.origCar ?? this.archetype;
-    this.ghostRs = null;
     this.events = [];
     this.gates = buildGates(stage);
     this.nextGate = 0;
@@ -228,7 +239,6 @@ export class RaceController implements IRaceController {
     this.resetSteps = 0;
     this.resetTeleported = false;
     this.wrongT = this.rightT = this.flipT = this.crawlT = 0;
-    this.recorder.stop();
     this.caller.reset(stage.pacenotes ?? []);
 
     const st = this.state;
@@ -245,7 +255,7 @@ export class RaceController implements IRaceController {
     const rec = this.best.load(stage.id, stage.seed, this.carKey);
     st.bestTime = rec ? rec.time : null;
     st.bestSplits = rec ? [...rec.splits] : null;
-    this.ghost = this.ghostEnabled && rec ? this.best.loadGhost(stage.id, stage.seed, this.carKey) : null;
+    this.gs.begin({ stageId: stage.id, seed: stage.seed, carKey: this.carKey, ...(this.origCar ? { origCar: this.origCar } : {}), archetype: this.archetype }, opts.ghost);
 
     this.placeAtStart();
     car.setParked(true);
@@ -269,11 +279,7 @@ export class RaceController implements IRaceController {
     st.controllable = !st.resetting;
     this.car?.setParked(false);
     this.events.push({ type: 'go' });
-    if (this.ghostEnabled && this.car) {
-      this.recorder.start();
-      const t = this.car.telemetry();
-      this.recorder.push(t.pos, t.quat, t.steerAngle);
-    }
+    this.gs.start();
   }
 
   isControllable(): boolean {
@@ -317,7 +323,7 @@ export class RaceController implements IRaceController {
         }
         this.wrongWay(stage, tel, dt);
       }
-      this.recordGhost(tel);
+      this.gs.tick(tel);
     } else if (st.phase === 'finished' && st.resetting) {
       this.advanceReset(dt);
     }
@@ -415,71 +421,71 @@ export class RaceController implements IRaceController {
   }
 
   // =================================================================================== ghost
+  // GHOST REGION: OWNED BY THE GHOSTS BUILDER (phase 2, docs/PHASE2_AI.md). Everything below up to "internals", the
+  // ghost fields above (gs, ghostSel), the ghost lines of begin / startNow / finish and fixedUpdate (gs.tick) belong to it.
+  // Keep these public signatures (main.ts and the test API call them). The logic lives in src/game/ghosts/ (docs/orig/ghosts.md).
 
-  /** A ghost of the best run is loaded for this stage + car. */
-  get hasGhost(): boolean {
-    return this.ghost !== null && this.ghost.count > 1;
+  /** The ghost cars to draw this frame: the one ghost of the race (id 'ghost'), tick-driven (120 Hz from GO), interpolated
+   *  between its last two ticks like the player's car. */
+  ghostRenderStates(playerTel: Readonly<CarTelemetry>, alpha = 0): readonly CarRenderState[] {
+    const g = this.ghostRenderState(playerTel, alpha);
+    return g ? [g] : [];
   }
 
-  /** Ghost pose (THREE space) at the current race time (+ offset, s), or null when there is no ghost or the
+  /** The ghost this race was started with (RaceBeginOptions.ghost); undefined = the stored best run. */
+  get selectedGhost(): GhostSelection | undefined {
+    return this.ghostSel;
+  }
+
+  /** JSON-safe description of the ghosts in play (test API getGhosts). */
+  ghostInfos(): GhostInfo[] {
+    return this.gs.info();
+  }
+
+  /** Load the selected team / saved ghost ahead of begin() so the race starts with it in place (main.ts awaits it). */
+  prepareGhost(sel: GhostSelection | undefined): Promise<void> {
+    this.ghostSel = sel;
+    return this.gs.prepare(sel);
+  }
+
+  /** IMenuHost: the stage's selectable ghosts (shipped team ghosts, then the saved ones). */
+  listGhosts(stageId: string): Promise<GhostListEntry[]> {
+    return this.gs.list(stageId);
+  }
+  /** IMenuHost: a finished valid run of this session exists for the loaded stage + car (SAVE GHOST saves the session best). */
+  canSaveGhost(): boolean {
+    return this.gs.canSave();
+  }
+  /** IMenuHost: SAVE GHOST. False: no run to save, invalid name, or the store refused it. */
+  saveSessionGhost(name: string): Promise<boolean> {
+    return this.gs.saveSessionBest(name);
+  }
+  /** IMenuHost: delete a saved (user) ghost. */
+  deleteGhost(id: string): Promise<void> {
+    return this.gs.deleteUser(id);
+  }
+
+  /** A ghost (best run, team or saved) is loaded for this race. */
+  get hasGhost(): boolean {
+    return this.gs.hasPlayback;
+  }
+
+  /** Ghost pose (THREE space) at the current tick (+ offset, s of render time), or null when there is no ghost or the
    *  race has not started. The returned object is reused. */
   ghostPose(timeOffset = 0): GhostPose | null {
     const st = this.state;
-    if (!this.ghost || (st.phase !== 'running' && st.phase !== 'finished')) return null;
-    return sampleGhost(this.ghost, st.time + timeOffset, this.ghostOut);
+    if (st.phase !== 'running' && st.phase !== 'finished') return null;
+    return this.gs.pose(timeOffset / DT);
   }
 
   /**
-   * Ready-made render state for the ghost car (id 'ghost', ghost: true) at the interpolated race time, or
-   * null. Wheel visuals reuse the player's geometry (same archetype) with the ghost's recorded steer.
-   * Returned object and its telemetry are reused between calls.
+   * Ready-made render state for the ghost car (id 'ghost', ghost: true), or null. The car is the ghost file's own
+   * (a team / saved ghost) or the player's. Returned object and its telemetry are reused between calls.
    */
   ghostRenderState(playerTel: Readonly<CarTelemetry>, alpha = 0): CarRenderState | null {
-    const g = this.ghostPose(alpha * DT);
-    if (!g) return null;
-    if (!this.ghostRs) {
-      const tel = structuredClone(playerTel) as CarTelemetry;
-      tel.id = 'ghost';
-      this.ghostRs = {
-        id: 'ghost',
-        archetype: this.archetype,
-        ...(this.origCar ? { origCar: this.origCar } : {}),
-        ghost: true,
-        player: false,
-        pos: { x: 0, y: 0, z: 0 },
-        quat: { w: 1, x: 0, y: 0, z: 0 },
-        telemetry: tel,
-        justReset: true,
-      };
-    } else this.ghostRs.justReset = false;
-    const rs = this.ghostRs;
-    const tel = rs.telemetry as CarTelemetry;
-    rs.archetype = this.archetype;
-    if (this.origCar) rs.origCar = this.origCar;
-    else delete rs.origCar;
-    rs.pos.x = tel.pos.x = g.pos.x;
-    rs.pos.y = tel.pos.y = g.pos.y;
-    rs.pos.z = tel.pos.z = g.pos.z;
-    rs.quat.w = tel.quat.w = g.quat.w;
-    rs.quat.x = tel.quat.x = g.quat.x;
-    rs.quat.y = tel.quat.y = g.quat.y;
-    rs.quat.z = tel.quat.z = g.quat.z;
-    tel.steerAngle = g.steerAngle;
-    this.ghostSpin += 0.4;
-    for (let i = 0; i < 4; i++) {
-      const w = tel.wheels[i] as WheelTelemetry;
-      const src = playerTel.wheels[i];
-      w.contact = false;
-      w.surface = null;
-      w.mode = 1;
-      w.visual.centreLocal.x = src.visual.centreLocal.x;
-      w.visual.centreLocal.y = src.visual.centreLocal.y;
-      w.visual.centreLocal.z = src.visual.centreLocal.z;
-      w.visual.steerAngle = i < 2 ? g.steerAngle : 0;
-      w.visual.spinAngle = this.ghostSpin;
-      w.visual.suspensionOffset = src.visual.suspensionOffset;
-    }
-    return rs;
+    const st = this.state;
+    if (st.phase !== 'running' && st.phase !== 'finished') return null;
+    return this.gs.renderState(playerTel, alpha);
   }
 
   // =================================================================================== internals
@@ -530,7 +536,7 @@ export class RaceController implements IRaceController {
     st.finishTime = t;
     st.time = t;
     st.nextCheckpoint = st.checkpointsTotal;
-    this.recorder.stop();
+    this.gs.stopRecording();
     // the race is over (FUN_004b4170 case 3 → player state 4, FUN_004b3790): the physics' track braking flag
     // phys+0x44 goes on with the stage's Physics.bodyBrakingFactorForTrack (MECHANICS_SPEC §2.7); a stage
     // without the factor (the procedural ones) keeps the car as it was. car.reset switches it off again.
@@ -548,14 +554,9 @@ export class RaceController implements IRaceController {
         resets: st.resets,
       };
       this.best.save(stage.id, stage.seed, rec, this.carKey);
-      if (this.ghostEnabled) {
-        try {
-          this.best.saveGhost(stage.id, stage.seed, this.carKey, this.recorder.track());
-        } catch {
-          /* storage full: keep the time, skip the ghost */
-        }
-      }
     }
+    // the session best (the faster valid run of this session, FUN_004db290) and the stored best-run ghost
+    this.gs.finishRun({ time: t, splits: st.splits, valid: this.runValid, storeAsBest: isBest });
     // state.bestTime / bestSplits keep the PREVIOUS best until the next begin() (results screen deltas)
     this.events.push({ type: 'finish', time: t, best: isBest });
   }
@@ -622,6 +623,7 @@ export class RaceController implements IRaceController {
 
   /** Spline distance the car waits at: the stage's spawn grid (ported stages), else the grid spot. */
   private gridS(stage: Stage): number {
+    if (this.gridCount > 1) return gridSlot(stageGrid(stage, this.startGridBack), this.gridIndex, this.gridCount, stage).s; // PHASE 2
     const spawn = (stage as Stage & { spawnS?: number }).spawnS;
     if (typeof spawn === 'number' && Number.isFinite(spawn)) return spawn;
     return this.startGridBack > 0 ? normS(stage, stage.startS - this.startGridBack) : stage.startS;
@@ -633,6 +635,11 @@ export class RaceController implements IRaceController {
    * no grid column offset). Otherwise on the line, or `startGridBack` m behind it, facing the stage.
    */
   private gridPose(stage: Stage) {
+    if (this.gridCount > 1) {
+      // PHASE 2 (ai-race builder, src/game/grid.ts): the player's slot on a multi-car grid (0x4847e0, executed in unicorn)
+      const grid = stageGrid(stage, this.startGridBack);
+      return liftAboveGround(stage, gridSimPose(stage, grid, this.gridIndex, this.gridCount, START_RAISE), START_RAISE, this.world);
+    }
     const spawn = (stage as Stage & { spawnS?: number }).spawnS;
     let pose;
     if (typeof spawn === 'number' && Number.isFinite(spawn)) pose = simStartPose(stage);
@@ -712,11 +719,6 @@ export class RaceController implements IRaceController {
       st.wrongWay = false;
       this.events.push({ type: 'wrongWay', on: false });
     }
-  }
-
-  private recordGhost(tel: Readonly<CarTelemetry>): void {
-    if (!this.recorder.recording) return;
-    if (this.runSteps % GHOST_STEP_DIV === 0) this.recorder.push(tel.pos, tel.quat, tel.steerAngle);
   }
 
   private updateMessage(): void {

@@ -124,6 +124,7 @@ There are exactly two spaces. Every field in `types.ts` says which one it is in 
  │            ?? Autopilot.update()            (if autopilot on)                            │
  │            ?? InputFilter.update(raw, DT)   (gear edges on exactly one substep)          │
  │    CarSim.step(controls, DT)                                                             │
+ │    [AI cars: field.step → stepCarContacts(all cars), docs §10; no-ops when solo]         │
  │    RaceController.fixedUpdate(DT, telemetry)   (clock, checkpoints, resets, pacenotes)   │
  │    TelemetryOverlay.sample(telemetry)          (graphs on the sim clock, 60 Hz)          │
  │ render: pose = lerp/slerp(prevStepPose, curStepPose, alpha)  → mirror to three           │
@@ -142,9 +143,12 @@ There are exactly two spaces. Every field in `types.ts` says which one it is in 
 * While the menu is visible main ignores the pause edge; the menu handles its own keys (Esc, Enter, P).
 * `FrameContext.impactImpulseMax` = the largest `telemetry.impactImpulse` over the frame's substeps (audio
   reads it so a crash on an intermediate substep is not missed).
-* Ghost car: once a best run exists for (stage, seed, car), `RaceController.ghostRenderState(tel, alpha)`
-  returns a `CarRenderState` (id `'ghost'`); main adds the ghost mesh to the renderer while that is non-null
-  and appends it to the cars array (`?ghost=0` disables it).
+* Ghost car: `RaceController.ghostRenderStates(tel, alpha)` returns the race's ghost as a `CarRenderState` (id `'ghost'`;
+  the stored best run, a shipped team ghost or a saved one, `RaceSelection.ghost`; drawn with the ghost FILE's car); main
+  adds / replaces / removes the renderer car in `syncGhostCars` (`?ghost=0` disables it). The ghost is the original's
+  15 Hz delta-coded file played tick by tick from GO (`src/game/ghosts/`, docs/orig/ghosts.md); `main.ts` awaits
+  `race.prepareGhost(sel.ghost)` in loadSelection / restartInPlace so a team / saved ghost is in place at begin.
+  Saved ghosts live in IndexedDB (`rally-web-ghosts`), the best-run ghost in localStorage (`rally-web:ghost:v3:`).
 * M toggles audio (main owns the `AudioEngine`) and shows a toast; the menu's Sound row uses
   `IMenuHost.setAudioEnabled`.
 * Window blur / hidden tab during countdown or running → `setPaused(true)` (pause card).
@@ -328,13 +332,15 @@ Per-axle wheel parameters live in `car.wheel.front` / `car.wheel.rear`; single-v
 | `step(n)` | run n substeps synchronously (full pipeline incl. race logic), render once, return telemetry |
 | `reset()` | immediate race reset (reason `'api'`) |
 | `teleport(s, lateral = 0)` | car at spline distance s, lateral metres right, with settle |
-| `loadStage(id, { car, tyre, seed, transmission, countdown })` | load and await; phase `idle` until `startRace()` unless `countdown: true` |
+| `loadStage(id, { car, origCar, tyre, seed, transmission, countdown, opponents, ghost })` | load and await; phase `idle` until `startRace()` unless `countdown: true` |
 | `setParam(path, value)` / `getParams()` | see §5 |
 | `setAutopilot(bool)`, `setCamera(i \| name)`, `startRace()` | `startRace` skips menu + countdown |
 | `getFrameStats()` | frames, physics steps, sim time, fps, paused, timeScale |
 | `probe()` | car vs ground and road: `clearance` (origin above `world.heightAt` at the car's own height, `yHint`), global `s` / `lateral` / `heightOffset`, `upY`, `headingErrDeg` (car axis vs road tangent), speed |
 | `getCarInfo()` | the player car: `archetype`, `origCar` (null = archetype car), `hullCar` (the `Car_<Name>.col` hull in use, null = the §3.4 box), `voice` (co-driver setting) |
 | `getRaceEvents()` | the `RaceEvent`s since the last call, oldest first (drained; at most the latest 1000 kept): countdown, go, checkpoint, lap, finish, `reset` with its `reason` (`manual`, `api`, `restart`, the automatic ones), pacenote, wrongWay |
+| `getField()` | PHASE 2: the AI field as JSON (`FieldSnapshot`: AI cars with pos / speed / s / lateral / controller outputs, standings, the player's position); empty when solo |
+| `getGhosts()` | PHASE 2: the ghost cars in play (`GhostInfo[]`: id, source best/team/user, car, time, playback tick, finished, pos) |
 
 Deterministic probing: `pause(true)`, then `step(n)` / `setControls(...)` / `getTelemetry()`.
 
@@ -347,6 +353,7 @@ Without `?stage=` it starts on the first original stage whose `track` and `colli
 order: `corsica-1-f`, also the first entry of the original's `Misc/level/track.lst`), else the first procedural
 stage; the menu then lists the original stages first.
 `&cam=<0..7|name>&autopilot=1&menu=0&countdown=0&debug=1&tune=1&timescale=0.5&trans=manual&audio=0&ghost=0`
+(`&ai=0..3` AI opponents on the grid, default 0 = solo; phase 2, `docs/PHASE2_AI.md`)
 
 `menu=0` starts with a countdown (`countdown=0` starts immediately). Renderer: `quality=low|medium|high|auto`
 (default adaptive on a real GPU, `low` on SwiftShader), `pr=<pixel ratio>`, `aa=0|1`. Original assets:
@@ -389,3 +396,50 @@ Keep `npm run typecheck`, `npm test`, `npm run build` and `npm run smoke` green.
 * No `Math.random()` in sim or world code (use `Rng`). Telemetry, race state and stage info stay plain JSON data.
 * Hot paths (sim step, raycast) avoid per-call allocation where cheap (`…To` helpers in `math.ts`).
 * Do not commit (the orchestrator handles git).
+
+## 10. Phase 2: AI opponents, ghosts, car-car contact (final state)
+
+`docs/PHASE2_AI.md` has the plan, the ownership map, the decisions and the open items (its section 0 is the final state). The
+per-substep order with AI cars (main.ts `physicsStep`, the original's: all physics, then contacts, then race logic) is: player
+`car.step` -> `field.step` (AI controllers + their `car.step`) -> `stepCarContacts([player, ...field.sims])` -> `race.fixedUpdate`
+-> `field.afterStep`. With no opponents the field and the contact step are no-ops and a solo race is bit-identical to before phase 2.
+
+* **Car-car contact** (`src/sim/contact.ts`, `src/sim/contact/{solve,hull,carHulls}.ts`): `stepCarContacts(cars, dt)` is
+  FUN_004a7980's pair loop (i, then j >= i, self pair skipped, `collidable` checked) calling the body solver FUN_006d4390 / 6d4fd0 /
+  6d5240 on the cars' 18-point / 10-plane `Car_<Name>.col` hulls (`carHulls.ts` is generated by `research/tools/contact_gen_hulls.py`).
+  `CarSim.contactBody()` is the live view of the car's rigid body (shared vectors, scalars pulled per call; `commit()` stores the
+  anchor timer and drops the telemetry cache), `CarSim.setCollidable(on)`, `setContactMultiplayer(on)` lowers the impulse cap from
+  30000 to 10000 N.s as the `-multiplayer` flag does. It writes `CollisionTelemetry.carHits / carStrength` on both cars (absent until a car
+  has been through a contact step; `carStrength` is the LATEST contact's strength, so a consumer latches on a change of `carHits`). It
+  does not allocate per call. `ICarSim.contactBody?()` / `setCollidable?()` are optional in the contract; a sim without them is ignored.
+  Spec: MECHANICS_SPEC Appendix D, research/formats/dynamics.md 7.1.
+* **AI driver** (`src/game/ai/`): `ctrl.ts` (FUN_007e0540), `aicar.ts` (FUN_00607280 / 00607ae0 / 00609550 on typed RallyCar memory,
+  every x87 op rounded to float32), `driver.ts` (`createAiDriver`: spline front end from `Stage` + the side.rsd samples, `placeholder:
+  false`), `aidata.ts` (loaders; resolve null without assets), asset part `ai`. `CarSimOptions.aiFriction` (tarmac tyre rows on every
+  surface, `frictionLevel = min(FL, 0)`) is implemented in `src/sim/car.ts` on a private surface table. One driver update per physics
+  substep. `CarField` feeds `AiDriverInputX.leaderLapDist` = the human's route distance (the original's rubber band). Spec docs/orig/ai.md.
+* **Multi-car race** (`src/game/field.ts` `CarField`): `prepare` builds the roster (`ai/roster.ts`: the career event's `Car =` list minus the
+  player's car, the exe's AI name table as top-up), loads AiData / AiTimes, creates one `ICarSim` + `AiDriver` per opponent through
+  `FieldHost.createCar` (main.ts), `begin` puts them on the original's grid (`src/game/grid.ts`, FUN_00484640 proven in unicorn) parked,
+  `step` / `afterStep` run the controller + sim step and the route / gate / finish / recovery tracking (no per-substep allocation).
+  AI cars are released in the substep the player is. `renderStates` / `otherFrames` / `snapshot` feed the renderer, audio
+  (`src/audio/orig/otherCars.ts`: SoundAI Simple set per car, 3-D + Doppler; the car-car impact sound is wired from `carHits` for all cars)
+  and the UI (`src/ui/hudAi.ts` position / strip / bar markers, `src/ui/menuAi.ts` Opponents row + results table).
+  `?ai=0..3` / `loadStage(id, { opponents })` / the menu row select the count; absent = 0 = solo (the menu row defaults to 3).
+  Ids: player `'player'`, AI `'ai1'..'ai3'`, ghost `'ghost'`; face-cache slots `24 * gridIndex + ...`. Spec docs/orig/race.md 9a.
+* **Ghosts** (`src/game/ghosts/`, docs/orig/ghosts.md): `format.ts` (the exe's 2.0 / 3.0 file layout, FUN_004dccb0 / 004dc7b0 codec at the game's
+  float32 x87 precision), `player.ts` (FUN_004db730, tick-driven from GO), `recorder.ts` (FUN_004db540), `frame.ts` (world / sim / three
+  conversions), `session.ts` (`GhostSession`: recorder + playback slot + session best + the ghost render state), `store.ts` (IndexedDB
+  `rally-web-ghosts`, memory fallback), `team.ts` (the 30 shipped team ghosts, asset part `ghosts`), `names.ts`. `RaceController` keeps a thin
+  ghost region over `GhostSession`; the best-run ghost is stored under `rally-web:ghost:v3:<stage>:<seed>:<car>` (the old 30 Hz
+  `rally-web:ghost:v2:*` JSON is never read). `src/ui/menuGhosts.ts` adds the Ghost row (Off / Best run / team ghosts / saved), SAVE GHOST
+  with the name dialog and the Delete key. A team / saved ghost races with the FILE's car, drawn translucent, silent, no shadow; it takes its
+  first pose at GO.
+* **Railings**: the object pass (`CarSim.objectPass`) gates TreeMesh candidates on the tight trunk radius and every other mesh object on its
+  bounding sphere (0x4a7fb3; `ObjectCollider.treeMesh`), so fences, walls and rails are hit anywhere along their span.
+* **Tools**: `node tools/ai-race.mjs --real` (stepped 4-car races on one stage per discipline, 89 checks), `node tools/ghosts-check.mjs`
+  (team ghosts / save round trip through the real menu), `node tools/ai-stages.mjs` (a solo AI car on all 48 stages),
+  `node artifacts/phase2/integrate/play.mjs` (the integration play-through: menu -> AI race -> results -> restart with the own ghost ->
+  pause menu -> main menu -> stage change, team ghost, disciplines, `?orig=0`, solo, 5+5 consecutive races memory, fps).
+* **Test API**: `getField()` (`FieldSnapshot`: cars with controller outputs, `dnf`, `progress`, `lastReset`, standings with `dnf`,
+  `playerPosition`), `getGhosts()` (`GhostInfo[]`), `loadStage(id, { opponents, ghost, countdown })`.

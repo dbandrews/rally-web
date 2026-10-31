@@ -41,6 +41,9 @@ export interface CarSoundInput {
   /** The physics body's hull contact, read live by the impact reader when no record is set (B+4 bit 0, type B+0x144,
    *  strength B+0x19c; FUN_00746c80 0x746d09). Absent = no body source (e.g. the calibrated fallback). */
   body?: { contact: boolean; type: number; strength: number } | null;
+  /** PHASE 2: the car-car record (+0x3c flag, +0x40 strength; FUN_006d4390 sets it on both cars): a new car-car contact this
+   *  update, or null/absent. It waits for the 0.5 s gate like the object record; type is forced to 1 (Hard), threshold 5. */
+  carHit?: { strength: number } | null;
   /** Collision record +0x28: the car is inside a bush. */
   inBush: boolean;
   /** The car update's backfire / blow-out flags (car +0x84 / +0x8c) from the shared source; absent = computed here. */
@@ -75,6 +78,7 @@ export class CarSoundPlayer {
   private collisionT = 0; // +0x180
   private bushT = 0; // +0x184
   private pendingImpact: { type: number; strength: number } | null = null;
+  private pendingCarHit: { strength: number } | null = null; // car-car record +0x3c / +0x40
   private readonly materials = [-1, -1, -1, -1]; // +0xa8
   // car-side flags (car +0x84 / +0x88 backfire, +0x8c / +0x90 / +0x94 blow-out)
   private backfireT = 0;
@@ -175,6 +179,7 @@ export class CarSoundPlayer {
     // FUN_007468e0: wheel data (materials of the 4 wheels)
     for (let w = 0; w < 4; w++) this.materials[w] = inp.wheelMaterial[w] ?? -1;
     if (inp.impact) this.pendingImpact = { ...inp.impact };
+    if (inp.carHit) this.pendingCarHit = { strength: inp.carHit.strength };
     this.collisions(inp.body ?? null);
     this.bush(inp.inBush);
     this.engineIdle(inp);
@@ -230,19 +235,26 @@ export class CarSoundPlayer {
 
   /**
    * FUN_00746c80 (gated 0.5 s; the record waits until the gate opens): the object record (+0x30) first, else the body's
-   * hull contact (B+4 bit 0: type B+0x144, strength B+0x19c); the car-car record (+0x3c, type 1, threshold 5) has no
-   * source in rally-web. Types: hard / snow ≥ 165, tree ≥ 5 (table 0x746e3c).
+   * hull contact (B+4 bit 0: type B+0x144, strength B+0x19c); the car-car record (+0x3c, type 1, threshold 5) comes from
+   * CarSoundInput.carHit (CollisionTelemetry.carHits, phase 2). Types: hard / snow ≥ 165, tree ≥ 5 (table 0x746e3c).
    */
   private collisions(body: CarSoundInput['body']): void {
     if (this.collisionT < 0.5) return;
     let rec = this.pendingImpact;
     if (rec) this.pendingImpact = null;
     else if (body?.contact) rec = { type: body.type, strength: body.strength };
+    // the car-car record overrides: type 1 (Hard) with the low threshold 5 (0x746d3a-0x746d6d; bl = 0 → fcomp [0x8070c8])
+    let hardMin = 165;
+    if (this.pendingCarHit) {
+      rec = { type: 1, strength: this.pendingCarHit.strength };
+      this.pendingCarHit = null;
+      hardMin = 5;
+    }
     if (!rec) return;
     const col = this.s(CAR_SLOT.Collision);
     if (!col) return;
     let patch = -1;
-    if (this.coll.hard.has(rec.type)) patch = rec.strength < 165 ? -1 : 1;
+    if (this.coll.hard.has(rec.type)) patch = rec.strength < hardMin ? -1 : 1;
     else if (this.coll.tree.has(rec.type)) patch = rec.strength < 5 ? -1 : 5;
     else if (this.coll.snow.has(rec.type)) patch = rec.strength < 165 ? -1 : 4;
     if (patch < 0) return;

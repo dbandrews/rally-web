@@ -2,7 +2,7 @@
 """fmt_ghost.py - parser / decoder for the original game's ghost files (topic `ai-ghosts`).
 
 Covers the shipped team ghosts (Misc/teamghosts/<Driver>_<Track>, version "2.0") and the user ghosts the game
-saves in Time Attack (version "3.0", %APPDATA%/.../Ghost Cars/...). Spec: research/formats/ai.md section 8.
+saves in Time Attack (version "3.0", %APPDATA%/.../Ghost Cars/...). Spec: research/formats/ghosts.md.
 
 Exe references (original_desktop_version.exe):
   load   FUN_004dc1a0   (version check "3.0" PTR 0x8498b4 / legacy "2.0" 0x8498d0, field order below)
@@ -25,10 +25,23 @@ File layout (little endian):
 State (9 floats): px py pz | qx qy qz qw | steerDeg | wheelSpinDeg (wrapped to +-180).
 Frame (19 bytes): u8 flags, s16 d[9].
   flags bit0 = HOLD frame: bytes 1..4 = u32 holdCount, the state stays for holdCount + 1 frame periods
-  flags bit(k+1), k = 0..6 = FINE: component k delta was < 2^-15 of its range, stored * 32768
-  value = prev + RANGE[k] * (FINE ? 1/32768 : 1) * d[k] / 32766.5     (decode 0x4dccb0)
-  RANGE = 32, 16, 32, 32, 32, 32, 32 (pos, quat: 0x4d9df0 / 0x4d9e20 / 0x8083b4), 128 (steer), 256 (spin)
-  the spin delta is wrapped into [-180, 180] before encoding; the decoded spin is wrapped back to [-180, 180].
+  flags bit(k+1), k = 0..6 = FINE: |component k delta| was < 2^-15 of its range, so it was
+           encoded as (delta * 32768) to keep full precision; decode scales it back by 1/32768.
+           Steer (k=7) and spin (k=8) never get FINE flags.
+  value = prev + RANGE[k] * (FINE ? 1/32768 : 1) * d[k] / 32766.5     (decode FUN_004dccb0)
+  RANGE = 32, 16, 32, 32, 32, 32, 32 (pos, quat xyz: globals 0x87627c..0x876290 written by
+          0x4d9df0 / 0x4d9e20, qw immediate 0x8083b4), 128 (steer 0x8083b8), 256 (spin 0x8083bc);
+          every RANGE is a power of two, so d = (cur - prev) / RANGE[k] is exact.
+  the spin delta is wrapped into [-180, 180] before the /256 (encode 4dca53..4dcaa1); the
+  decoded spin is wrapped back to [-180, 180] (decode 4dce94..).
+  Arithmetic model (research/formats/ghosts.md §2.3, corrected): the running game executes x87 code with the
+  FPU in SINGLE precision (Direct3D 8 CreateDevice without D3DCREATE_FPU_PRESERVE: the flags at 0x68cf5e are
+  0x20/0x40/0x50/0x80), i.e. EVERY x87 add / sub / mul / div result is rounded to float32 (Math.fround in the TS
+  port). decode_frame / encode_frame below are that model, proven bit-exact against FUN_004dccb0 / FUN_004dc7b0
+  executed under unicorn with the control word set to 0x7f (270 000 random decoded components, 39 710 real frames,
+  30 000 random encodes: 0 mismatches). The earlier float64 ("80-bit intermediates") model is kept as
+  decode_frame_x80 / encode_frame_x80: it matched unicorn only because unicorn starts with PC=80 until the first
+  __ftol resets it, and it differs from the real game by one float32 ulp in ~8 % of the components.
 
 Run:  .venv/bin/python -I tools/assets/lib/formats/fmt_ghost.py [file ...]   (default: every team ghost)
 """
@@ -88,23 +101,102 @@ def parse(b):
     g['totalTime'] = g['splits'][-1] if n else float('inf')
     g['initial'] = [r.f32() for _ in range(9)]
     g['frames'] = [r.take(FRAME) for _ in range(g['frameCount'])]
-    g['trailing'] = len(b) - r.o
+    g['trailing'] = len(b) - r.o           # 20 in every shipped team ghost (never read by the exe loader)
+    g['trailer'] = b[r.o:]
     return g
 
 
 def decode_frame(prev, fr):
-    """FUN_004dccb0 (float32 like the exe's stores)."""
+    """FUN_004dccb0 with the FPU in single precision (module docstring): every operation rounds to float32.
+    out[k] = f32(f32(f32(RANGE * fine * d) * INV_Q) + prev[k]); the spin sum is wrapped to +-180 afterwards."""
     flags = fr[0]
     d = struct.unpack('<9h', fr[1:])
     out = []
     for k in range(9):
         fine = FINE if (k < 7 and flags & (2 << k)) else 1.0
-        out.append(F32(F32(RANGE[k] * fine * d[k] * INV_Q) + prev[k]))
+        out.append(F32(F32(F32(RANGE[k] * fine * d[k]) * INV_Q) + prev[k]))
     if out[8] > 180.0:
         out[8] = F32(out[8] - 360.0)
     if out[8] < -180.0:
         out[8] = F32(out[8] + 360.0)
     return out
+
+
+def encode_frame(prev, cur):
+    """FUN_004dc7b0 with the FPU in single precision: -> 19 frame bytes (flags + 9 s16).
+    d[k] = clamp(f32(f32(cur[k]-prev[k]) / RANGE[k]), -1, 1); FINE components (k < 7, |d| < 2^-15) are pre-scaled
+    by 32768 (exact); the s16 is trunc(f32(d * 32766.5)) (the product is rounded to float32 BEFORE __ftol truncates,
+    which is why encode(decode(frame)) lands one step lower on the exact grid values). The spin delta is wrapped to
+    +-180 before /256 (4dca53..4dcaa1)."""
+    flags = 0
+    d = []
+    for k in range(9):
+        if k == 8:
+            s = F32(cur[8] - prev[8])
+            w = F32(s - 360.0) if s > 180.0 else s
+            if w < -180.0:
+                w = F32(w + 360.0)
+            dk = F32(w / RANGE[8])
+        else:
+            dk = F32(F32(cur[k] - prev[k]) / RANGE[k])
+        if dk > 1.0:
+            dk = 1.0
+        elif dk < -1.0:
+            dk = -1.0
+        if k < 7 and abs(dk) < FINE:
+            flags |= 2 << k
+            dk = dk * 32768.0
+        d.append(dk)
+    fr = bytearray([flags])
+    for dk in d:
+        i = int(F32(dk * 32766.5))          # trunc toward zero (x87 fistp, chop)
+        fr += struct.pack('<h', max(-32768, min(32767, i)))
+    return bytes(fr)
+
+
+def decode_frame_x80(prev, fr):
+    """The superseded float64 model (80-bit intermediates, one rounding at the store); see the module docstring."""
+    flags = fr[0]
+    d = struct.unpack('<9h', fr[1:])
+    out = []
+    for k in range(9):
+        fine = FINE if (k < 7 and flags & (2 << k)) else 1.0
+        out.append(F32(RANGE[k] * fine * d[k] * INV_Q + prev[k]))
+    s8 = RANGE[8] * d[8] * INV_Q + prev[8]
+    out[8] = F32(s8 - 360.0) if s8 > 180.0 else F32(s8)
+    if out[8] < -180.0:
+        out[8] = F32(out[8] + 360.0)
+    return out
+
+
+def encode_frame_x80(prev, cur):
+    """The superseded float64 model of the encoder (see decode_frame_x80)."""
+    flags = 0
+    d = []
+    for k in range(9):
+        if k == 8:
+            s = cur[8] - prev[8]
+            w = F32(F32(s) - 360.0) if s > 180.0 else F32(s)
+            if w < -180.0:
+                w = F32(w + 360.0)
+            dk = F32(w / RANGE[8])
+        else:
+            dk = (cur[k] - prev[k]) / RANGE[k]
+            if k >= 6:
+                dk = F32(dk)
+        if dk > 1.0:
+            dk = 1.0
+        elif dk < -1.0:
+            dk = -1.0
+        if k < 7 and abs(dk) < FINE:
+            flags |= 2 << k
+            dk = dk * 32768.0
+        d.append(dk)
+    fr = bytearray([flags])
+    for dk in d:
+        i = int(dk * 32766.5)
+        fr += struct.pack('<h', max(-32768, min(32767, i)))
+    return bytes(fr)
 
 
 def key_states(g):
@@ -162,13 +254,13 @@ def main(argv):
         st = key_states(g)
         holds = sum(1 for f in g['frames'] if f[0] & 1)
         qn = max(abs(math.sqrt(sum(c * c for c in s[3:7])) - 1.0) for s in st)
-        ok = g['trailing'] == 0
+        ok = g['trailing'] == 20
         bad += not ok
         print(f"{os.path.basename(p):28s} v{g['version']} frames {g['frameCount']:5d} periods {len(st) - 1:5d} "
               f"({(len(st) - 1) / GHOST_HZ:7.2f} s) total {g['totalTime']:8.3f} splits {len(g['splits']):2d} "
               f"holds {holds:3d} car {g['carTemplate']:22s} name {g['ghostName']!r:14s} |q|-1 max {qn:.4f} "
-              f"trailing {g['trailing']}")
-    print('files', len(files), 'with trailing bytes', bad)
+              f"trailer {g['trailer'][:4].hex()}..")
+    print('files', len(files), 'with a non-20-byte trailer', bad)
     return 1 if bad else 0
 
 
