@@ -350,6 +350,19 @@ class WheelState {
 
 // ------------------------------------------------------------------------------------------- CarSim
 
+const F32_STEP = Math.fround(0.2);
+/** FUN_006cfad0(x, 0.2f) with the x87 control word 0x7F (every product / quotient rounded to 24 bits). */
+export function bumpPhase(x: number): number {
+  if (x < 0) {
+    const n = Math.trunc(Math.fround(Math.fround(-1 / F32_STEP) * x));
+    let r = Math.fround(n * F32_STEP);
+    if (r !== x) r = Math.fround(r + F32_STEP);
+    return Math.fround(r + x);
+  }
+  const n = Math.trunc(Math.fround(x / F32_STEP));
+  return Math.fround(x - Math.fround(n * F32_STEP));
+}
+
 export class CarSim implements ICarSim {
   readonly id: string;
   readonly params: CarParams;
@@ -358,6 +371,9 @@ export class CarSim implements ICarSim {
   /** AI friction mode (phase 2): `surfaces` is the private tarmac-row copy, see aiFrictionTable. */
   private readonly aiFriction: boolean;
   private readonly rng: Rng;
+  /** the original's world frame minus sim space (Objects.con world - (2048, H, 2048)); 0 when the sim runs in the original frame */
+  worldOffX = 2048;
+  worldOffZ = 2048;
 
   // ---- body (§1.4 Body) ----
   private mass = 1;
@@ -1270,8 +1286,18 @@ export class CarSim implements ICarSim {
       ray.x = -B_up.x * SL;
       ray.y = -B_up.y * SL;
       ray.z = -B_up.z * SL;
-      w.hitX = o.x + ray.x;
-      w.hitZ = o.z + ray.z;
+      // W+0x94 / W+0x9c are float32 ray-end coordinates in the ORIGINAL's world frame (= sim space + (2048, ., 2048),
+      // Objects.con world - (2048,H,2048)); surfaceSink's 0.2 m bump phase is read from them.
+      {
+        // FUN_006cea90: W+0x94 / W+0x9c = float32 chain ((fwd.x*mz + right.x*mx) + up.x*my) + pos.x, then + (-SL*up.x)
+        const F = Math.fround;
+        const mx = F(w.mount.x), my = F(w.mount.y), mz = F(w.mount.z), nSL = F(-SL);
+        const px = F(this.pos.x + this.worldOffX), pz = F(this.pos.z + this.worldOffZ);
+        const wx = F(F(F(F(F(this.fwd.x) * mz) + F(F(this.right.x) * mx)) + F(F(B_up.x) * my)) + px);
+        const wz = F(F(F(F(F(this.fwd.z) * mz) + F(F(this.right.z) * mx)) + F(F(B_up.z) * my)) + pz);
+        w.hitX = F(wx + F(nSL * F(B_up.x)));
+        w.hitZ = F(wz + F(nSL * F(B_up.z)));
+      }
       const hit = this.world.segment(o, ray, wheelSlot(this.slotBase, i), this.segHit);
       const hn = hit ? hit.normal : null;
       let c0 = 0;
@@ -1766,9 +1792,10 @@ export class CarSim implements ICarSim {
       let b = 0;
       const cx = w.hitX;
       const cz = w.hitZ;
-      let u = ((cx % 0.2) + 0.2) % 0.2;
+      // FUN_006cfad0(x, 0.2f): float32 step (0x3e4ccccd), x87 24-bit-precision products (asm 0x6cfad0-0x6cfb21)
+      let u = bumpPhase(cx);
       if (u > 0.025 && u < 0.175) b += Math.cos((u - 0.1) * 16) - 0.36;
-      u = ((cz % 0.2) + 0.2) % 0.2;
+      u = bumpPhase(cz);
       if (u > 0.025 && u < 0.175) b += Math.cos((u - 0.1) * 16) - 0.36;
       const A = sf.bump * (1 - this.speedKmh / 512);
       sink += A * (0.64 - 0.5 * b);

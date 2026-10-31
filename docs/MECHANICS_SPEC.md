@@ -57,7 +57,7 @@ one-step-lagged load transfer, independent of the springs. In the air, gravity (
 
 | Id | Deviation | Reason | Toggle (default) |
 |---|---|---|---|
-| DEV-1 | The "big slip angle" grip bonus (§2.6, step W10) uses `abs(beta) > 0.75` instead of the original's signed `beta > 0.75`. | Original applies it to right-hand drifts only [V asm 0x6cbb55]; almost certainly a bug. | `assist.bigBetaSymmetric = true` |
+| DEV-1 | Opt-in: the "big slip angle" grip bonus (§2.6, step W10) uses `abs(beta) > 0.75` instead of the original's signed `beta > 0.75`. | Kept as an opt-in only. The original applies the bonus to one slide direction (signed `beta > 0.75`, [V asm 0x6cbb49-0x6cbb99]) and the port must handle identically: proven by executing the exe step (FUN_006c6760, unicorn) on 28,700 synthetic cases. With the flag on the port departs from the exe by up to 0.063 m/s in one step and by 0.92 m / 11° after a 3 s sand handbrake turn; with it off the port equals the exe to 3.4e-6 m/s per step (7.4e-6 with the shipped decimal parameters, float32 rounding of the constants only). | `assist.bigBetaSymmetric = false` (OFF by default: original one-sided bonus) |
 | DEV-2 | **Withdrawn in v1.1.** (Was: floor the yaw-torque cap at 0.) | The cap cannot go negative: β uses `atan`, not `atan2` [V fpatan(x, 1) at 0x6cb041], so \|β\| < π/2 and the cap is always ≥ 0.179·TWMaxMom·Iyy (§2.8). A reversing car reads β ≈ 0. | none |
 | DEV-3 | TWStaMy yaw-friction sign uses a smooth sign with a 0.05 rad/s band instead of a hard `L_y >= 0 ? -1 : +1`. | The hard sign flips the yaw rate by 4·TWStaMy·μ·dt ≈ 0.033 rad/s every step on tarmac when driving straight (±0.017 rad/s about zero; invisible in heading) [M]. | `assist.smoothYawFrictionSign = false` (OFF by default: keep original; enable only if jitter is visible) |
 | DEV-4 | **Withdrawn in v1.5.** (Was: body-to-ground collision by our own impulse model.) | The original's hull probes (FUN_006cea90 tail) and body solver FUN_006d0970 are ported literally and proven (§2.9). | none |
@@ -656,7 +656,7 @@ function surfaceSink(w: Wheel): number {
   if (sf.bumpFlag & 1) {                           // washboard on flagged surfaces, 0.2 m cells
     let b = 0;
     for (const c of [w.rayEnd.x, w.rayEnd.z]) {   // v1.4 [R]: this step's ray END point (mount - up·SL), W+0x94/+0x9c
-      const u = ((c % 0.2) + 0.2) % 0.2;
+      const u = bumpPhase(c);                      // FUN_006cfad0(c, 0.2f): float32 step, 24-bit x87 products (car.ts bumpPhase)
       if (u > 0.025 && u < 0.175) b += Math.cos((u - 0.1) * 16) - 0.36;
     }
     const A = sf.bump * (1 - S.speedKmh / 512);
@@ -665,6 +665,7 @@ function surfaceSink(w: Wheel): number {
   return sink;
 }
 ```
+[V executed] `rayEnd.x/z` (port: `w.hitX` / `w.hitZ`) are float32 coordinates in the ORIGINAL's world frame (sim + (2048, ·, 2048), about 1770 m, where one ulp is 1.2e-4 m and the 16 rad/m cosine turns it into 3e-5 m of sink): the port builds them with the exe's float32 chain (FUN_006cea90) and takes the phase with `bumpPhase` (bit for bit equal to the executed FUN_006cfad0 on 1,039 cases, tests/sim/bumpPhase.test.ts). An exact float64 `fmod` was off by up to 1.6e-4 m of extension / 59 N on the flagged surfaces.
 (A second pattern with 0.8 m cells applies when the hull touches a special material 0x23 [V]; not needed.)
 
 #### 2.5.3 Suspension [V FUN_006cf620; R v1.5]
@@ -820,7 +821,7 @@ for (let i = 0; i < 4; i++) {
     let mu = w.mode === 1 ? muStatic(w.surface, p.tyreType) : muKinetic(w.surface, p.tyreType);
     // W10 drift grip bonus (both modes)
     if (Math.abs(beta) > 0.125) mu *= 1 + Math.abs(beta) * S.thr * 0.2;
-    const bb = assist.bigBetaSymmetric ? Math.abs(beta) : beta;          // DEV-1 (original: signed beta)
+    const bb = assist.bigBetaSymmetric ? Math.abs(beta) : beta;          // DEV-1 off by default: the original's signed beta (one side only)
     if (bb > 0.75) mu *= 1 + (Math.abs(beta) - 0.75) * 0.3;
     w.mu = mu;
     const muFz = Fz * mu;
@@ -1201,7 +1202,7 @@ Sleep notes [V rule, M effects]:
 | 4 | Yaw torque cap | `((2.75-s)-\|β\|)·TWMaxMom·Iyy` | 2.8 |
 | 5 | Yaw rate cap | `(2-s)·TWMomLimStart + \|β\|·TWMomLimScale` | 2.8 |
 | 6 | Drift grip bonus | μ × (1 + 0.2·\|β\|·throttle) above \|β\| 0.125 | 2.6 W10 |
-| 7 | Big-angle grip bonus | μ × (1 + 0.3·(\|β\|-0.75)) above 0.75 rad (DEV-1) | 2.6 W10 |
+| 7 | Big-angle grip bonus | μ × (1 + 0.3·(\|β\|-0.75)) above signed β 0.75 rad, one slide direction as the original (DEV-1 opt-in: both) | 2.6 W10 |
 | 8 | Side fill | `sign(Fy)·min(1,\|β\|+0.25)·min(μFz-\|Fy\|, 10000)` on body x | 2.6 W18 |
 | 9 | Drift drive boost | `0.5·Fx·\|β\|·s` on body z (and loads the wheel) | 2.6 W16 |
 | 10 | Deep-surface lateral factor | Fy0 × SideFrictionFactor (1.4) on DEEP surfaces | 2.6.1 |
@@ -1632,6 +1633,8 @@ const TYRE_TABLE = {
 Runs every physics substep (dt = 1/120) and writes `Controls` (§1.4). Digital channels ramp while held and
 drop to 0 the instant they are released (no return ramp). A digital channel counts as pressed when its raw
 value is > 0 [V: `raw <= 0 → 0`].
+With both steer keys held Right wins (the original tests the positive key first, FUN_005b65b0, executed): the car does not
+centre. Keyboard and d-pad both feed `left` / `right`; touch and analog sticks use the analog branch.
 
 ```ts
 interface RawInput { thr: number; brk: number; hb: number; steer: number;   // analog values 0..1 / -1..1
@@ -1646,8 +1649,8 @@ function filterInputs(raw: RawInput, dt: number) {
   C.brake    = raw.brkDigital ? (raw.brk > 0 ? (C.brake    <= 0.19 ? 0.20 : C.brake    + 1.5 * dt) : 0) : pedal(raw.brk);
   C.handbrake= raw.hbDigital  ? (raw.hb  > 0 ? (C.handbrake<= 0.49 ? 0.50 : C.handbrake+ 1.0 * dt) : 0) : pedal(raw.hb);
   if (raw.steerDigital) {
-    const dir = (raw.right ? 1 : 0) - (raw.left ? 1 : 0);
-    if (dir === 0) C.steer = 0;                                               // snaps to centre
+    const dir = raw.right ? 1 : raw.left ? -1 : 0;                            // both keys held: Right wins [V FUN_005b65b0 tests the positive key first]
+    if (dir === 0) C.steer = 0;                                               // neither key: snaps to centre
     else if (dir > 0) C.steer = C.steer <= 0.04 ? 0.05 : C.steer + 2.0 * dt;  // opposite lock: jumps to ±0.05
     else C.steer = C.steer >= -0.04 ? -0.05 : C.steer - 2.0 * dt;
   } else {
@@ -1953,7 +1956,7 @@ standstill (§2.10). Keep that (original behaviour) or enable DEV-7 (`heavyCarSl
 | `assistSpeedLo` / `assistSpeedSlope` (25 km/h / 0.02) | 25 / 0.02 | 0 / 0.005 | 80 / 0.1 | 1 / 0.001 |
 | `driftGripBeta` / `driftGripGain` (0.125 / 0.2) | 0.125 / 0.2 | 0 / 0 | 1 / 1 | 0.005 / 0.01 |
 | `bigBetaThreshold` / `bigBetaGain` (0.75 / 0.3) | 0.75 / 0.3 | 0 / 0 | 1.5 / 1 | 0.01 |
-| `bigBetaSymmetric` (DEV-1) | true | – | – | toggle |
+| `bigBetaSymmetric` (DEV-1) | false | – | – | toggle |
 | `sideFillBase` / `sideFillCap` (0.25 / 10000) | 0.25 / 10000 | 0 / 0 | 1 / 30000 | 0.01 / 500 |
 | `driftDriveBoost` (0.5) | 0.5 | 0 | 2 | 0.05 |
 | `sideFrictionFactor` | 1.4 | 1 | 3 | 0.05 |
@@ -2346,7 +2349,7 @@ at DT and 2·DT. Every refuted item below was re-confirmed in the code or the si
 **Confirmed without change** [V unless noted]: 120 Hz accumulator, 0.2 s clamp and 100-step settle; steer
 lock and auto-reverse pedal swap; assist speed factor, κ threshold and β; slip-angle relaxation and κ; the
 grip/slide machine, including the Fast/Slow static-slip-angle selection (a selection, not a blend; default
-Fast); drift grip bonus incl. the signed-β quirk (DEV-1); combined-slip tyre force and all 80 `LOAD_TABLE`
+Fast); drift grip bonus with the original's signed β (DEV-1 off); combined-slip tyre force and all 80 `LOAD_TABLE`
 floats; Pos/Neg K curves; TWStaMy/TWStaSteer/TWKinSteer and their signs; W14-W18; deep-surface
 SideFrictionFactor; SpinTorque as a launch bonus; yaw torque and rate caps; suspension; tyre loads independent
 of the springs; anti-roll; FWD/RWD/AWD splits and that gear ratio never scales wheel torque; torque curve and

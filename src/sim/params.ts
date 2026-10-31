@@ -189,7 +189,7 @@ function shared(a: ArchetypeSpecific): CarParams {
     // Groups
     wheel: { front: { ...FRONT_WHEEL }, rear: { ...REAR_WHEEL } },
     assist: {
-      bigBetaSymmetric: true, // DEV-1 on
+      bigBetaSymmetric: false, // DEV-1 off: original one-sided bonus, signed beta > 0.75 (exe 0x6cbb49)
       smoothYawFrictionSign: false, // DEV-3 off
       sleepPedalThreshold: false, // DEV-6 off
       heavyCarSleep: false, // DEV-7 off

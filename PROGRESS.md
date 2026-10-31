@@ -64,6 +64,7 @@ sweep in the real game), `tools/render-stage-shots.mjs`, `tools/drive.mjs` (`--q
 | 11. Menus / UI | 🟡 | `src/ui/menu.ts`, `hud.ts` (HTML UI with original names, icons, sounds) |
 | 12. Movies | ⬜ | `original_version/Movies/*.bik` |
 | 13. Phase 2: AI opponents, ghosts, car-car contact, railings | ✅ ported, 🟡 inferred values (section 13) | `src/game/{ai,ghosts,field,grid}*`, `src/sim/contact*`, `parts/{ai,ghosts}.py`; docs/PHASE2_AI.md, docs/orig/{ai,ghosts}.md |
+| 14. Gravel friction audit (2026-10-31) | ✅ fixed, 🟡 open items (section 14) | `src/sim/{params,inputFilter,car}.ts`, `research/tools/{emu_step,emu_keys}`, `research/frida/regress.audit.ts` |
 
 ### 1. Asset pipeline ✅
 
@@ -244,6 +245,60 @@ phase-2 parts are new, untracked files: `stages/<id>/ai.json` x48, `global/ai.js
 plus the modified manifest and `collision.{bin,json}` of all stages. `git add` them, or the deployed game races solo (the field logs one info
 line and starts without opponents), has no team ghosts, and the manifest test and two `ai` part tests fail in CI.
 
+### 14. Gravel friction audit (2026-10-31) 🟡
+
+Trigger: the user reported that gravel friction does not feel identical. Two audit rounds, no change to the tyre model itself: the gravel rows,
+tyre functions and mu getters were already equal to the exe. Tags as in section 13.
+
+**What was checked**
+* Frida run 2 (rallycross1, tyre 1): all 168 399 gravel wheel-steps are grip mode, mu 1.71, no handbrake, |beta| under 3.4 deg. So sliding, handbrake,
+  tyres 0-4 and the loose materials had never been compared with the running original.
+* **Emulator proof of the untraced regimes [E]**: the exe's own car step FUN_006c6760 (whole callee tree, x87 control word 0x7F) is executed in unicorn on
+  states rebuilt from the trace snapshots (`research/tools/emu_step/`, README there). It reproduces 99.9 % of 20 000 recorded post-states bit for bit.
+  On 28 700 synthetic cases (sliding, handbrake, large beta, launch, lock-up, tyres 0-4, 10 loose materials) the port equals the exe, once DEV-1
+  is off, to 3.4e-6 m/s per step with the trace's float32 parameters and 7.4e-6 m/s with the shipped decimal ones (float32 rounding of the
+  constants; `fround` on every parameter brings it back to 3.4e-6), 0 tyre-mode mismatches, 14 chained 3 s runs within 6.6 mm.
+* Parameter parity of the 29 cars and the surface and tyre tables (lanes param-parity, loose-surfaces), the input path (keyboard executed through
+  FUN_005b6290 -> FUN_005b65b0 -> FUN_00752c00, `research/tools/emu_keys/`), the game options (steering, tyre) and a closed-loop comparison.
+* Whole-run one-step gate: the port against the recorded run 2 post-state on all 281 290 steps (124 096 with a wheel on gravel; 638 hull-contact
+  steps left out): `research/frida/regress.audit.ts`.
+
+**Found and fixed**
+* **DEV-1 off by default** (`assist.bigBetaSymmetric = false`): the exe gives the big-beta grip bonus only for signed beta > 0.75 (asm 0x6cbb49-0x6cbb99);
+  the port gave it to both slide directions. Flag on: up to 0.063 m/s per step (0.046 on gravel, tyre 2) and 0.92 m / 11 deg after a 3 s handbrake
+  turn on sand (`research/tools/emu_step/out/mutations.json`, `chaincmp.bigbeta.json`); flag off: the float32 floor above.
+  Kept as an opt-in toggle. Test: default has no bonus at beta -1.0, has it at +1.0, and the flag gives both.
+* **Both steer keys held**: the exe steers toward Right (FUN_005b65b0 tests the positive key first); the port centred, so a fast gravel counter-steer
+  flick pulsed the steering to 0 for the frames of key overlap. `inputFilter.ts`: `dir = raw.right ? 1 : raw.left ? -1 : 0`; fuzz-equal to the exe
+  afterwards. d-pad uses the same `left` / `right`; touch and sticks use the analog path (unchanged).
+* **Bump-surface phase** (car.ts `bumpPhase`, `worldOffX/Z`): the sink of the bumpFlag surfaces (orig 0, 6, 9, 11-14, 18, 19, 22; not gravel) takes the
+  phase of the float32 ray-end coordinate in the original world frame with FUN_006cfad0's 24-bit products; the port used an exact float64 fmod, off by up to
+  1.6e-4 m of extension / 59 N. `bumpPhase` is bit-equal to the executed function on 1 039 cases (`tests/sim/bumpPhase.test.ts`); 657 of 658 outliers gone.
+  The live sim adds the track translation (2048, ., 2048) [E on rallycross1 only, research/formats/gcm.md: 1.2 M rays; assumed for the other
+  stages]. 2048 m is a whole number of 0.2 m cells, so a different offset could only move the phase by float32 rounding, as before the fix.
+  The car-level wiring is checked by `research/frida/bump.audit.ts` only.
+* `research/study/physics_values.md` section 7: the steering option is `(v != 0)` (asm 0x499c68-0x499c7b), 0 = Slow ("loose"), 1 = Fast ("tight", default).
+  The port's default (Fast) was already right.
+* Replay harness: `Replayer` takes the hull from P+0xa4 (TRACE_CARS: FordEscort, Micra, Beetle, Corolla) and runs in the trace frame (worldOff 0).
+
+**Benign (residual classes, run 2 against the exe, after the fixes)**: on gravel steps one-step |v error| p50 6e-7, p99.9 2.4e-6 m/s. 8 steps in 281 290 differ
+by more than 1e-5 m/s, all float32 gates the port cannot reproduce without a float32 quaternion / axes / velocity pipeline: the W18 side-fill gate
+|Vy| > 0.0625 (5 steps, 3 on gravel, up to 1.6e-2 m/s for one step, unbiased), the body slip angle at a standstill after the finish (vL.z about 1e-9: 3
+steps, none on gravel) and one bump-surface ray end one float32 ulp across a phase edge (idx 4812). Allow-list in `regress.audit.ts`; nothing lasting.
+
+**Open**
+* Bush drag (PhysCar+0x28 / +0x2c, 0x6cd3d9): the formula is executed-proven (drag = elastic 0.6 x 0.85 x (km/h/240 x 0.125 + 0.15) x Fext.y x vL at the
+  hull bottom centre, one shot per substep, 6 900 states, 4e-6 m/s) but the object-pass gate (0 < e < 1, bush origin within 2 m, TreeMesh) needs
+  the placement origin and `knbush1` is a hard collider in the port; **not applied**. Real effect: about 0.1 to 0.5 m/s per substep while brushing a roadside bush.
+* The analog pedal dead zone 0.08 is a port choice for gamepads (the exe passes pedals through raw); keyboard is unaffected.
+* Which race-start tyre writer wins (FUN_00488590 or FUN_00499ab0) is unrecovered; the port starts each stage on its stage-default tyre. Tyre 1 vs 2 on
+  gravel is mu 1.710 vs 1.775.
+* The menu says Stable / Agile where the original says loose / tight; the port does not persist the pre-race selection across reloads (the original has
+  save / load car settings).
+* No Frida trace of tyre 2, sand or mud exists; those regimes are proven only through the emulator.
+* The audit harnesses (`research/tools/emu_step/`, `emu_keys/`, `research/frida/*.audit.ts`) live under the gitignored `research/`, so they
+  are local only and not run in CI.
+
 ## Corrections to earlier notes
 
 * `fogzor.rff` is **TrackFogSettings** (the per-stage low-detail fog scripts the environment resolver loads first),
@@ -357,7 +412,7 @@ All on the current tree, with every part built:
    |tan α|, |κ| and suspension extension; sprite extents (XYSizeRatio·size × size); lens flare size law; ghost
    material; car `envmapColorScale` / `metallicSpecularScale` bindings; `reflectivityScale` not applied.
 10. Sim: the material-0x23 branch, the impact-effect outputs B+0x190..0x1d0 (sparks, scrapes), the corner states
-    phys+0xa8..0xb4 (original 4, port 1), the bush drag on phys+0x28 (flag ported, drag not). Car-car response
+    phys+0xa8..0xb4 (original 4, port 1), the bush drag on phys+0x28 (flag ported, drag not; the drag formula is proven, the object-pass gate is not, section 14). Car-car response
     (FUN_004a7980 → FUN_006d4390) is ported and proven (section 13).
 11. Object pass approximations: the car box from its hull points (export the car geometry's render box to the
     sim params instead), candidates by placement index, immediate refresh on reset. The object pass runs per car before the car-car

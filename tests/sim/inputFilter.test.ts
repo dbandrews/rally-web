@@ -80,3 +80,29 @@ describe('§5.1 input filter (analog)', () => {
     expect(f.update(kb, DT).throttle).toBeCloseTo(0.3, 9);
   });
 });
+
+describe('§5.1 keyboard steering, both keys held (FUN_005b65b0 tests Right first)', () => {
+  const key = (left: boolean, right: boolean): RawInput => ({ ...neutralRawInput(), device: 'keyboard', steerDigital: true, left, right });
+  it('both keys from rest ramp right: 0.05, then +2/s per step', () => {
+    const f = new InputFilter();
+    expect(f.update(key(true, true), DT).steer).toBeCloseTo(0.05, 9);
+    expect(f.update(key(true, true), DT).steer).toBeCloseTo(0.05 + 2 * DT, 9);
+    expect(f.update(key(true, true), DT).steer).toBeCloseTo(0.05 + 4 * DT, 9);
+  });
+  it('right held to full lock, then left added: stays at 1.0; releasing right jumps to -0.05', () => {
+    const f = new InputFilter();
+    for (let i = 0; i < 200; i++) f.update(key(false, true), DT);
+    expect(f.update(key(false, true), DT).steer).toBe(1);
+    expect(f.update(key(true, true), DT).steer).toBe(1);
+    expect(f.update(key(true, true), DT).steer).toBe(1);
+    expect(f.update(key(true, false), DT).steer).toBeCloseTo(-0.05, 9);
+    expect(f.update(key(true, false), DT).steer).toBeCloseTo(-0.05 - 2 * DT, 9);
+  });
+  it('left held, then right added: switches to +0.05; neither key snaps to centre', () => {
+    const f = new InputFilter();
+    for (let i = 0; i < 30; i++) f.update(key(true, false), DT);
+    expect(f.update(key(true, false), DT).steer).toBeLessThan(-0.2);
+    expect(f.update(key(true, true), DT).steer).toBeCloseTo(0.05, 9);
+    expect(f.update(key(false, false), DT).steer).toBe(0);
+  });
+});

@@ -75,7 +75,8 @@ export class InputFilter implements IInputFilter {
       : pedal(raw.handbrake);
 
     if (raw.steerDigital) {
-      const dir = (raw.right ? 1 : 0) - (raw.left ? 1 : 0);
+      // both keys held: Right wins (FUN_005b65b0 tests the positive key first), it does not cancel to centre
+      const dir = raw.right ? 1 : raw.left ? -1 : 0;
       const st = cfg.keySteerStart;
       if (dir === 0) C.steer = 0;
       else if (dir > 0) C.steer = C.steer <= st - 0.01 ? st : C.steer + cfg.keySteerRate * dt;

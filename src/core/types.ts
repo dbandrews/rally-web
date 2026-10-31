@@ -149,7 +149,7 @@ export interface WheelParams {
 
 /** Deviation toggles of §0.3 (DEV-1, 3, 6, 7, 8, 9). DEV-2 withdrawn, DEV-4 n/a, DEV-5 is `damage.physical`. */
 export interface AssistToggles {
-  /** DEV-1: abs(beta) > 0.75 big-slip grip bonus (default TRUE; original: signed beta, right drifts only). */
+  /** DEV-1: abs(beta) > 0.75 big-slip grip bonus on both slide directions (default FALSE = original: signed beta, one side only). */
   bigBetaSymmetric: boolean;
   /** DEV-3: smooth TWStaMy sign with 0.05 rad/s band (default false = original hard sign). */
   smoothYawFrictionSign: boolean;

@@ -313,11 +313,28 @@ describe('§2.10 sleep, §2.3.5 hill-hold, §0.3 DEV toggles', () => {
       expect(Math.abs(drop(false).dy), car).toBeGreaterThan(0.01);
     }
   });
-  it('DEV-1 bigBetaSymmetric only matters for left drifts beyond 0.75 rad (toggle is live)', () => {
-    const c = makeCar({ params: { assist: { bigBetaSymmetric: false } } });
-    expect(c.params.assist.bigBetaSymmetric).toBe(false);
-    c.setParams({ assist: { bigBetaSymmetric: true } });
-    expect(c.params.assist.bigBetaSymmetric).toBe(true);
+  it('DEV-1 bigBetaSymmetric: default off = the original one-sided bonus (signed beta > 0.75, exe 0x6cbb49); on = both sides', () => {
+    // wheel mu of one step on flat gravel, rolling 20 m/s with the body slipping at signed beta (beta = atan(-vL.x / vL.z))
+    const muAt = (beta: number, symmetric?: boolean): number[] => {
+      const c = makeCar({ surface: 'gravel', params: symmetric === undefined ? {} : { assist: { bigBetaSymmetric: symmetric } } });
+      const d = c.debug();
+      const s = 20;
+      const q = c as unknown as { vW: { x: number; y: number; z: number } };
+      const lx = -Math.tan(beta) * s;
+      q.vW.x = d.fwd.x * s + d.right.x * lx;
+      q.vW.y = d.fwd.y * s + d.right.y * lx;
+      q.vW.z = d.fwd.z * s + d.right.z * lx;
+      c.step(ctl(), DT);
+      expect(c.debug().beta).toBeCloseTo(beta, 6);
+      return c.debug().wheels.map((w) => w.mu);
+    };
+    expect(makeCarParams('awd_wrc').assist.bigBetaSymmetric).toBe(false);
+    const plain = muAt(-0.5); // |beta| below 0.75, no thr -> the plain table mu
+    const bonus = 1 + (1.0 - 0.75) * 0.3;
+    for (const [i, m] of muAt(-1.0).entries()) expect(m, `default, beta -1.0, wheel ${i}`).toBeCloseTo(plain[i], 9); // no bonus
+    for (const [i, m] of muAt(1.0).entries()) expect(m, `default, beta +1.0, wheel ${i}`).toBeCloseTo(plain[i] * bonus, 9);
+    for (const [i, m] of muAt(-1.0, true).entries()) expect(m, `symmetric, beta -1.0, wheel ${i}`).toBeCloseTo(plain[i] * bonus, 9);
+    for (const [i, m] of muAt(1.0, true).entries()) expect(m, `symmetric, beta +1.0, wheel ${i}`).toBeCloseTo(plain[i] * bonus, 9);
   });
 });
 
