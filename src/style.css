@@ -10,11 +10,19 @@ body {
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   -webkit-user-select: none;
   user-select: none;
+  /* phones: no pull-to-refresh / overscroll bounce, no double-tap zoom, no grey tap flash, no long-press callout */
+  overscroll-behavior: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 #game {
   position: fixed;
   inset: 0;
   z-index: 0;
+  touch-action: none;
 }
 #game canvas {
   display: block;

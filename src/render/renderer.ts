@@ -28,7 +28,8 @@
  *
  * Extras (optional for the integrator): setQuality('low'|'medium'|'high'), getQuality(), setAutoQuality(on),
  * getAutoQuality(), debugInfo(), setDebugCamera(); window.__rallyRenderer points at the instance (tools).
- * URL: ?quality=low|medium|high pins a preset; default on a real GPU is adaptive (start 'high', step down while
+ * URL: ?quality=low|medium|high pins a preset; default on a real GPU is adaptive (start 'high', 'medium' on a
+ * touch-first device, step down while
  * the smoothed frame rate stays < 50 fps); CPU rasterisers (headless SwiftShader) default to 'low', pr 0.6.
  * ?pr=<pixel ratio>, ?aa=0|1 (MSAA).
  *
@@ -257,8 +258,11 @@ export class GameRenderer implements IGameRenderer {
     // steps down while the frame rate stays low; a CPU rasteriser (headless tooling) gets a fixed 'low'.
     const q = urlParam('quality');
     if (q === 'low' || q === 'medium' || q === 'high') this.quality = q;
-    else if (q === 'auto' || !this.softwareGL) this.autoQuality = true;
-    else this.quality = 'low';
+    else if (q === 'auto' || !this.softwareGL) {
+      this.autoQuality = true;
+      // phones / tablets (coarse primary pointer): start one step down, mobile GPUs rarely hold 'high'
+      if (typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches) this.quality = 'medium';
+    } else this.quality = 'low';
     const pr = Number(urlParam('pr'));
     if (Number.isFinite(pr) && pr > 0.25 && pr <= 3) this.pixelRatioOverride = pr;
     else if (this.softwareGL && !q) this.pixelRatioOverride = 0.6; // headless tooling: favour frame rate

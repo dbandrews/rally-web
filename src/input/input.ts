@@ -1,12 +1,13 @@
 /**
  * src/input/input.ts — OWNED BY THE GAME BUILDER.
  *
- * Keyboard + gamepad devices -> RawInput (once per rendered frame). Bindings: ./bindings.ts GAME_KEYS
+ * Keyboard + gamepad + touch devices -> RawInput (once per rendered frame). Bindings: ./bindings.ts GAME_KEYS
  * (arrows/WASD, Space handbrake, E/Shift gear up, Q/Z gear down, R reset, C camera, V look back,
- * P pause) and GAMEPAD_BINDINGS (standard mapping).
+ * P pause) and GAMEPAD_BINDINGS (standard mapping); the on-screen controls (src/ui/touch.ts) through TouchSource.
  * Device presets (§5.1): keyboard = all digital (the sim's InputFilter ramps them); gamepad = analog stick
  * (the filter applies dead zone 0.1 and sqrtCurve 1), analog triggers -> analog pedals (…Digital = false),
- * buttons -> digital. When both are used, a held key wins over the pad for that channel.
+ * buttons -> digital; touch = pedals and buttons digital like keys, steering analog ('touch' device, shaped by the
+ * touch controls). When several are used, a held key wins for that channel, then touch, then the pad.
  * Listens to KeyboardEvent.code on `window` (tools/drive.mjs sends real key events through Playwright);
  * preventDefault on bound keys (Space / arrows scroll the page otherwise); ignores keys typed into text
  * fields. The §5.1 filter itself lives in src/sim/inputFilter.ts (consumed by main.ts), not here.
@@ -39,6 +40,26 @@ interface KeyLike {
 
 type PadReader = () => readonly (Gamepad | null)[];
 
+/** One read of the on-screen controls (src/ui/touch.ts): levels, plus edges pressed since the last read. */
+export interface TouchInput {
+  /** Analog axis for the 'touch' device, -1..1 (+ = right), or null when nothing steers. */
+  steer: number | null;
+  throttle: boolean;
+  brake: boolean;
+  handbrake: boolean;
+  reset: boolean;
+  lookBack: boolean;
+  gearUp: boolean;
+  gearDown: boolean;
+  cameraNext: boolean;
+  pause: boolean;
+}
+
+export interface TouchSource {
+  /** null while the controls are off and no edge is pending. */
+  read(): TouchInput | null;
+}
+
 /** Stick movement / trigger travel that marks the pad as the active device. */
 const PAD_ACTIVITY = 0.25;
 
@@ -53,6 +74,7 @@ export class InputManager implements IInputManager {
   private readonly codeToAction = new Map<string, GameAction>();
   private readonly padPrev: boolean[] = [];
   private readonly readPads: PadReader;
+  private readonly touch: TouchSource | null;
 
   private readonly onKeyDown = (e: KeyLike) => {
     if (isTypingTarget(e.target)) return;
@@ -73,8 +95,9 @@ export class InputManager implements IInputManager {
     this.down.clear();
   };
 
-  constructor(target: Window | InputTarget = window, readPads?: PadReader) {
+  constructor(target: Window | InputTarget = window, readPads?: PadReader, touch?: TouchSource) {
     this.target = target as InputTarget;
+    this.touch = touch ?? null;
     this.readPads =
       readPads ??
       (() => {
@@ -194,6 +217,35 @@ export class InputManager implements IInputManager {
       r.cameraNext = edge(B.cameraNext) || r.cameraNext;
       r.pause = edge(B.pause) || r.pause;
       if (this.activeDevice === 'gamepad' && !r.steerDigital) r.device = 'gamepad';
+    }
+
+    // ---- touch (on-screen pedals / buttons as keys, analog steering)
+    const t = this.touch?.read();
+    if (t) {
+      if (t.steer !== null && !kLeft && !kRight) {
+        r.steerDigital = false;
+        r.steer = Math.max(-1, Math.min(1, t.steer));
+        r.device = 'touch';
+        this.activeDevice = 'touch';
+      }
+      if (t.throttle && !kThr) {
+        r.throttleDigital = true;
+        r.throttle = 1;
+      }
+      if (t.brake && !kBrk) {
+        r.brakeDigital = true;
+        r.brake = 1;
+      }
+      if (t.handbrake && !kHb) {
+        r.handbrakeDigital = true;
+        r.handbrake = 1;
+      }
+      r.reset = r.reset || t.reset;
+      r.lookBack = r.lookBack || t.lookBack;
+      r.gearUp = r.gearUp || t.gearUp;
+      r.gearDown = r.gearDown || t.gearDown;
+      r.cameraNext = r.cameraNext || t.cameraNext;
+      r.pause = r.pause || t.pause;
     }
     return r;
   }

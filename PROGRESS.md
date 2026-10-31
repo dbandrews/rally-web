@@ -40,6 +40,7 @@ URL flags (full list: `docs/ARCHITECTURE.md` §7):
 | `gamma=0`, `gfxgamma=<0..1>` | in-race gamma ramp off / menu gamma value |
 | `music=1` | play the user's own soundtrack copy from the gitignored `public/sound/music/` (never built) |
 | `audio=0`, `ghost=0`, `quality=low\|medium\|high`, `pr=`, `aa=` | sound, ghost, renderer |
+| `touch=1` / `touch=0` | force the phone / tablet touch controls on or off (default: on for a coarse pointer or after a touch) |
 | `carlm=0`, `orighook=0` | diagnostics: no track lightmap on the cars / no original-fog hook |
 
 Checks: `npx tsc --noEmit`, `npx vitest run`, `npm run smoke`, `npm run build`, `node tools/all-stages.mjs`
@@ -177,6 +178,12 @@ sweep in the real game), `tools/render-stage-shots.mjs`, `tools/drive.mjs` (`--q
 HTML menu and HUD: original car names, car-select icons, spec lines and bars, car order from the original car
 select, menu meme sounds, the original countdown / pacenote audio. Not ported: the `Menu.rff` screen art and 3-D
 garage, most `LocaleEnglish.rff` strings, the HUD art.
+
+Phones and tablets (a rally-web addition, `src/ui/touch.ts`): floating analog steering pad on the left half or tilt
+steering, GAS / BRAKE / HAND BRAKE pedals bottom right (slide between them), pause / camera / look back / reset /
+fullscreen buttons, manual gear + / −; compact touch HUD and finger-sized menus; upright phones pause with a
+turn-sideways banner; first tap asks for fullscreen + landscape (Android), `manifest.webmanifest` for Add to Home
+Screen (iPhone). Checked in Chromium phone emulation only, not yet on real devices.
 
 ### 12. Movies ⬜
 

@@ -50,8 +50,9 @@ import { HelpOverlay } from './help';
 import { aiMenuRows, aiResultsHtml } from './menuAi';
 import { ghostDialogOpen, ghostKey, ghostMenuRows, ghostResultButtons } from './menuGhosts';
 import type { MenuExtraEnv } from './menuExtras';
-import { escapeHtml, firstPad, formatDelta, formatTime, isTypingTarget, readBestTime, setUiSetting, uiSettings } from './settings';
+import { escapeHtml, firstPad, formatDelta, formatTime, isTypingTarget, readBestTime, setUiSetting, toast, uiSettings } from './settings';
 import { injectUiStyles } from './styles';
+import { requestTiltPermission, touchCapable } from './touch';
 
 type Screen = 'none' | 'main' | 'pause' | 'results';
 
@@ -505,7 +506,8 @@ export class Menu implements IMenu {
           s.transmission = i === 1 ? 'manual' : 'auto';
         },
         enabled: () => true,
-        info: () => 'Manual: E / Shift up, Q / Z down (RB / LB on a pad). Hold brake at a standstill to reverse in automatic.',
+        info: () =>
+          'Manual: E / Shift up, Q / Z down (RB / LB on a pad, + / − above the gas pedal on a touch screen). Hold brake at a standstill to reverse in automatic.',
       },
       setup('brake', 'Brake bias', 'Front bias is stable under braking; rear bias helps the car rotate into bends.'),
       setup('powerRatio', 'Power split', 'Four-wheel drive only: front-biased drive pulls straighter, rear-biased drive slides more.', () => this.carEntry()?.drive === 'AWD'),
@@ -534,6 +536,32 @@ export class Menu implements IMenu {
         enabled: () => true,
         info: () => 'Also C in the car (Y on a pad). Hold V to look back.',
       },
+      // touch screens only: steering pad or tilt (src/ui/touch.ts)
+      ...(touchCapable()
+        ? [
+            {
+              id: 'touchSteer',
+              label: 'Touch steer',
+              choices: () => [{ label: 'Pad' }, { label: 'Tilt' }],
+              get: () => (uiSettings.touchSteer === 'tilt' ? 1 : 0),
+              set: (i: number) => {
+                setUiSetting('touchSteer', i === 1 ? 'tilt' : 'drag');
+                // iOS asks for motion access; the prompt needs this tap, so ask right here
+                if (i === 1)
+                  void requestTiltPermission().then((ok) => {
+                    if (ok) return;
+                    setUiSetting('touchSteer', 'drag');
+                    toast('No motion access: steering with the pad');
+                    this.render();
+                  });
+              },
+              enabled: () => true,
+              info: () =>
+                'Pad: put your left thumb down anywhere on the left half and slide it sideways to steer; let go to straighten. ' +
+                'Tilt: turn the device like a steering wheel; brake and hand brake move to your left thumb.',
+            } satisfies OptRow,
+          ]
+        : []),
       {
         id: 'calls',
         label: 'Co-driver',

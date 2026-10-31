@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { GAME_KEYS, isTypingTarget } from '../../src/input/bindings';
-import { InputManager, type InputTarget } from '../../src/input/input';
+import { InputManager, type InputTarget, type TouchInput } from '../../src/input/input';
+import { neutralRawInput } from '../../src/core/constants';
+import { InputFilter } from '../../src/sim/inputFilter';
+import { padSteer, tiltRollDeg, touchAxis } from '../../src/ui/touch';
 
 type Fn = (e: unknown) => void;
 
@@ -165,5 +168,91 @@ describe('InputManager (short taps)', () => {
     const r2 = im.poll();
     expect(r2.reset).toBe(false);
     expect(r2.handbrake).toBe(0);
+  });
+});
+
+describe('InputManager (touch controls)', () => {
+  const touchRead = (over: Partial<TouchInput> = {}): TouchInput => ({
+    steer: null,
+    throttle: false,
+    brake: false,
+    handbrake: false,
+    reset: false,
+    lookBack: false,
+    gearUp: false,
+    gearDown: false,
+    cameraNext: false,
+    pause: false,
+    ...over,
+  });
+
+  it('pedals are digital like keys, steering is the analog touch device; held keys win', () => {
+    let next: TouchInput | null = touchRead({ steer: 0.5, throttle: true, handbrake: true, gearUp: true });
+    const t = new FakeTarget();
+    const im = new InputManager(t, () => [], { read: () => next });
+    let r = im.poll();
+    expect(r.device).toBe('touch');
+    expect(r.steerDigital).toBe(false);
+    expect(r.steer).toBe(0.5);
+    expect(r.throttleDigital && r.handbrakeDigital).toBe(true);
+    expect(r.throttle).toBe(1);
+    expect(r.handbrake).toBe(1);
+    expect(r.brake).toBe(0);
+    expect(r.gearUp).toBe(true);
+    expect(im.activeDevice).toBe('touch');
+    t.key('keydown', 'KeyD');
+    r = im.poll();
+    expect(r.steerDigital).toBe(true);
+    expect(r.right).toBe(true);
+    next = null; // controls hidden
+    t.key('keyup', 'KeyD');
+    r = im.poll();
+    expect(r.throttle).toBe(0);
+    expect(r.steer).toBe(0);
+  });
+});
+
+describe('touch steering math', () => {
+  it('padSteer: offset from the floating centre; the centre follows past full lock', () => {
+    expect(padSteer(100, 130, 60)).toEqual({ anchor: 100, d: 0.5 });
+    expect(padSteer(100, 190, 60)).toEqual({ anchor: 130, d: 1 }); // pushed 30 px past full lock
+    expect(padSteer(130, 160, 60)).toEqual({ anchor: 130, d: 0.5 }); // and half way back answers at once
+    expect(padSteer(100, 20, 60)).toEqual({ anchor: 80, d: -1 });
+  });
+
+  it('touchAxis through the filter: dead zone, expo blend, full lock at the end, symmetric', () => {
+    const f = new InputFilter();
+    const steerOf = (d: number) => f.update({ ...neutralRawInput(), device: 'touch', steer: touchAxis(d, 0.03) }, 1 / 120).steer;
+    expect(touchAxis(0.02, 0.03)).toBe(0);
+    expect(steerOf(1)).toBeCloseTo(1, 3);
+    expect(steerOf(-1)).toBeCloseTo(-1, 3);
+    let prev = 0;
+    for (let d = 0.05; d <= 1; d += 0.05) {
+      const s = steerOf(d);
+      expect(s).toBeGreaterThan(prev);
+      expect(s).toBeLessThanOrEqual(d + 1e-9); // finer than linear near the centre
+      expect(steerOf(-d)).toBeCloseTo(-s, 9);
+      prev = s;
+    }
+    expect(steerOf(0.5)).toBeGreaterThan(0.3);
+    expect(steerOf(0.5)).toBeLessThan(0.4);
+  });
+
+  it('tiltRollDeg: right side down is +, in portrait and both landscapes, upright or laid back', () => {
+    // portrait, flat on the back, right edge 20° down
+    expect(tiltRollDeg(0, 20, 0)).toBeCloseTo(20, 6);
+    // landscape, turned counter-clockwise (top to the left): the screen's right side is the device bottom; that side
+    // down = the top up = beta > 0 for a flat device
+    expect(tiltRollDeg(15, 0, 90)).toBeCloseTo(15, 6);
+    expect(tiltRollDeg(-15, 0, 90)).toBeCloseTo(-15, 6);
+    // the other landscape (top to the right): the device top is the screen's right side
+    expect(tiltRollDeg(-15, 0, 270)).toBeCloseTo(15, 6);
+    // laid back 50° in landscape (CCW): roll survives the pitch (gamma carries the pitch here)
+    expect(tiltRollDeg(0, -50, 90)).toBeCloseTo(0, 6);
+    const b = 10;
+    const g = -50;
+    const roll = tiltRollDeg(b, g, 90);
+    expect(roll).toBeGreaterThan(5);
+    expect(roll).toBeLessThan(10.5);
   });
 });

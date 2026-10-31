@@ -11,12 +11,14 @@ export interface UiSettings {
   pacenoteHud: boolean;
   /** Show the HUD at all. */
   hud: boolean;
+  /** Touch screens: steer with the on-screen pad ('drag') or by tilting the device ('tilt'; src/input/touch.ts). */
+  touchSteer: 'drag' | 'tilt';
 }
 
 const KEY = 'rally-web:ui:v2';
 /** v1 stored the whole object, so its `voice` is the old default (off) unless the player toggled it: dropped. */
 const KEY_V1 = 'rally-web:ui:v1';
-const DEFAULTS: UiSettings = { voice: true, pacenoteHud: true, hud: true };
+const DEFAULTS: UiSettings = { voice: true, pacenoteHud: true, hud: true, touchSteer: 'drag' };
 
 function load(): UiSettings {
   try {

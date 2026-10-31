@@ -352,7 +352,7 @@ original's default car (`ORIG_DEFAULT_CAR`, Micra) when the original cars are bu
 Without `?stage=` it starts on the first original stage whose `track` and `collision` parts are built (catalogue
 order: `corsica-1-f`, also the first entry of the original's `Misc/level/track.lst`), else the first procedural
 stage; the menu then lists the original stages first.
-`&cam=<0..7|name>&autopilot=1&menu=0&countdown=0&debug=1&tune=1&timescale=0.5&trans=manual&audio=0&ghost=0`
+`&cam=<0..7|name>&autopilot=1&menu=0&countdown=0&debug=1&tune=1&timescale=0.5&trans=manual&audio=0&ghost=0&touch=1`
 (`&ai=0..3` AI opponents on the grid, default 0 = solo; phase 2, `docs/PHASE2_AI.md`)
 
 `menu=0` starts with a countdown (`countdown=0` starts immediately). Renderer: `quality=low|medium|high|auto`

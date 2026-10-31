@@ -81,7 +81,8 @@ export class InputFilter implements IInputFilter {
       else if (dir > 0) C.steer = C.steer <= st - 0.01 ? st : C.steer + cfg.keySteerRate * dt;
       else C.steer = C.steer >= -(st - 0.01) ? -st : C.steer - cfg.keySteerRate * dt;
     } else {
-      const isWheel = raw.device === 'wheel';
+      // touch steering shapes its own axis (src/input/touch.ts): the wheel preset, no dead zone or sqrt curve
+      const isWheel = raw.device === 'wheel' || raw.device === 'touch';
       const deadzone = isWheel ? cfg.wheelDeadzone : cfg.padDeadzone;
       const curve = isWheel ? cfg.sqrtCurveWheel : cfg.sqrtCurvePad;
       const a0 = Math.abs(raw.steer);

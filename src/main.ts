@@ -91,6 +91,7 @@ import { origCarById } from './sim/origCars';
 import { Hud } from './ui/hud';
 import { Menu } from './ui/menu';
 import { toast, uiSettings } from './ui/settings';
+import { TouchControls } from './ui/touch';
 import { attachOriginalWorld } from './world/orig';
 import { buildStage, listStages } from './world/stages';
 
@@ -184,6 +185,8 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   /** PHASE 2: renderer cars of the AI opponents (id → original car). */
   private readonly aiCars = new Map<string, string>();
   private readonly hud: Hud;
+  /** On-screen pedals / steering for phones and tablets (fed into `input`; shown in touch mode while racing). */
+  private readonly touch: TouchControls;
   private readonly menu: Menu;
   private readonly overlay: TelemetryOverlay;
   /** Created in init() after the first stage + car exist (the panel reads tunables in its constructor). */
@@ -244,20 +247,21 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     const hudEl = document.getElementById('hud-root')!;
     const overlayEl = document.getElementById('overlay-root')!;
     this.renderer = new GameRenderer(gameEl);
-    this.input = new InputManager(window);
     this.hud = new Hud(hudEl);
+    this.touch = new TouchControls(hudEl);
+    this.input = new InputManager(window, undefined, this.touch);
     // The first user gesture starts the AudioContext (browser autoplay rules). Registered BEFORE the Menu and in the
     // capture phase: the menu consumes its keys in the capture phase (stopImmediatePropagation), and window capture
     // listeners run in registration order, so a keyboard-only player's first menu key starts the audio (menu meme
     // sounds, countdown). Kept until the context runs: a key that grants no user activation (Esc) retries next time.
+    // A touch grants activation on its release only (pointerup / touchend), a mouse on its press.
+    const gestures = ['keydown', 'pointerdown', 'pointerup', 'touchend'] as const;
     const resumeAudio = () => {
       this.audio.resume();
       if (!this.audio.started) return;
-      window.removeEventListener('keydown', resumeAudio, true);
-      window.removeEventListener('pointerdown', resumeAudio, true);
+      for (const g of gestures) window.removeEventListener(g, resumeAudio, true);
     };
-    window.addEventListener('keydown', resumeAudio, true);
-    window.addEventListener('pointerdown', resumeAudio, true);
+    for (const g of gestures) window.addEventListener(g, resumeAudio, true);
     this.menu = new Menu(overlayEl, this);
     this.overlay = new TelemetryOverlay(overlayEl);
     if (opts.cam) this.renderer.setCameraMode(opts.cam);
@@ -675,6 +679,7 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       ...(hasField ? { others: this.field.otherFrames(frameDt, this.loop.paused), field: this.field.snapshot(), fieldEvents } : {}),
     };
     this.hud.update(ctx);
+    this.touch.update(ctx, this.menu.visible);
     this.menu.update(ctx);
     this.overlay.update(ctx);
     this.tuning?.update(ctx);

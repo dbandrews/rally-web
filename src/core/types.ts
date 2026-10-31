@@ -471,8 +471,9 @@ export interface Controls {
   gearDown: boolean;
 }
 
-/** Steering device; selects the filter's dead zone / sqrtCurve preset (§5.1 device presets). */
-export type InputDevice = 'keyboard' | 'gamepad' | 'wheel' | 'none';
+/** Steering device; selects the filter's dead zone / sqrtCurve preset (§5.1 device presets). 'touch' = the on-screen
+ *  steering pad or tilt steering (src/ui/touch.ts), which shapes its own axis (the wheel preset: no dead zone). */
+export type InputDevice = 'keyboard' | 'gamepad' | 'wheel' | 'touch' | 'none';
 
 /**
  * Device-level input, produced once per rendered frame by the input manager (src/input) or the test API.

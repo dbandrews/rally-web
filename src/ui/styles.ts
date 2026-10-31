@@ -241,6 +241,54 @@ body.rw-tuning-open .rw-notes { max-width: calc(100vw - 2 * min(420px, 41vw) - 3
   .rw-title { font-size: 40px; }
   .rw-opt { grid-template-columns: 96px 1fr; }
 }
+
+/* ======================================================================= touch mode
+   body.rw-touch (src/ui/touch.ts): phones and tablets. In the car: a compact top band (progress, the next pacenote,
+   clock), the buttons under the progress box, speed + gear as a small plate under the clock (the gear box keeps its
+   shift-light colours), the bottom free for the car, the steering pad (left half) and the pedals (bottom right).
+   Menus: finger-sized rows and arrows, Start always on screen, no keyboard hints. */
+body:not(.rw-touch) .rw-only-touch, body.rw-touch .rw-only-keys { display: none !important; }
+body.rw-touch .rw-progress { width: min(260px, 30vw); box-sizing: border-box; padding: 6px 10px 8px; }
+body.rw-touch .rw-progress .rw-stage b { font-size: 13px; }
+body.rw-touch .rw-progress .rw-stage span { white-space: nowrap; }
+body.rw-touch .rw-notes { top: 12px; max-width: calc(100vw - 2 * min(290px, 33vw)); }
+body.rw-touch .rw-note:not(:first-child) { display: none; }
+body.rw-touch .rw-note { min-width: 0; padding: 4px 10px 4px 6px; }
+body.rw-touch .rw-note svg { width: 44px; height: 44px; }
+body.rw-touch .rw-note .rw-sev { font-size: 36px; }
+body.rw-touch .rw-note .rw-ntext b { max-width: 150px; font-size: 13px; }
+body.rw-touch .rw-clock { min-width: 0; padding: 4px 12px 6px 10px; }
+body.rw-touch .rw-clock .rw-time { font-size: 30px; }
+body.rw-touch .rw-clock .rw-row { font-size: 12px; }
+body.rw-touch .rw-split { font-size: 18px; }
+body.rw-touch .rw-ai { top: 132px; width: min(300px, 34vw); }
+body.rw-touch .rw-gauge { left: auto; right: 18px; top: 88px; bottom: auto; width: 132px; height: 52px; transform: none;
+  background: var(--rw-panel); clip-path: var(--rw-chamfer); border-left: 3px solid var(--rw-amber); }
+body.rw-touch .rw-hud.rw-closed .rw-gauge { top: 114px; }
+body.rw-touch .rw-gauge svg { display: none; }
+body.rw-touch .rw-gauge .rw-speed { left: 8px; right: 52px; top: 6px; font-size: 34px; text-align: right; text-shadow: none; }
+body.rw-touch .rw-gauge .rw-unit { left: 8px; right: 52px; top: 39px; font-size: 8px; letter-spacing: .2em; text-align: right; }
+body.rw-touch .rw-gauge .rw-gear { left: auto; right: 6px; top: 5px; transform: none; width: 38px; height: 42px; font-size: 30px; box-sizing: border-box; }
+body.rw-touch .rw-gauge .rw-boost { left: 0; right: 0; top: auto; bottom: 0; height: 3px; }
+body.rw-touch .rw-surface { display: none; }
+body.rw-touch .rw-chips { left: 50%; top: 78px; bottom: auto; transform: translateX(-50%); flex-direction: column; align-items: center; }
+/* phones in landscape: the race position only (the full standings are on the results screen) */
+@media (max-height: 500px) {
+  body.rw-touch .rw-ai-strip { display: none; }
+}
+body.rw-touch .rw-toast-wrap { bottom: auto; top: 30%; }
+body.rw-touch .rw-msg { font-size: 84px; }
+body.rw-touch .rw-msg.rw-finish { font-size: 72px; }
+body.rw-touch .rw-msg.rw-wrong { font-size: 56px; }
+body.rw-touch .rw-foot { display: none; }
+body.rw-touch .rw-main, body.rw-touch .rw-card { max-height: calc(100% - 24px); }
+body.rw-touch .rw-opt { min-height: 40px; }
+body.rw-touch .rw-arrow { width: 44px; height: 40px; font-size: 26px; }
+body.rw-touch .rw-main .rw-actions { position: sticky; bottom: 0; z-index: 1; margin-top: 6px; padding: 8px 0 2px;
+  background: rgb(6, 8, 11); box-shadow: 0 -12px 12px -2px rgba(6, 8, 11, .9); }
+body.rw-touch .rw-btn { padding: 14px 22px; }
+body.rw-touch .rw-help .rw-helpcard { max-height: calc(100% - 24px); }
+body.rw-touch .rw-help .rw-kv span:last-child { white-space: normal; }
 `;
 
 let injected = false;
