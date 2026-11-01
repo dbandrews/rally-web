@@ -89,8 +89,12 @@ export class ProxyGrid<T extends { pos: SimV3; radius: number } = OrigObstacle> 
   }
 
   near<U = Obstacle>(x: number, z: number, r: number, out: U[]): U[] {
-    out.length = 0;
-    if (!this.list.length || !(Math.abs(x) < FAR && Math.abs(z) < FAR) || !(r >= 0)) return out;
+    // `out` is filled by index and trimmed at the end: `out.length = 0` would drop its backing store every call
+    let n = 0;
+    if (!this.list.length || !(Math.abs(x) < FAR && Math.abs(z) < FAR) || !(r >= 0)) {
+      out.length = 0;
+      return out;
+    }
     const reach = Math.min(r + this.maxR, 4096);
     const cx0 = Math.floor((x - reach) / CELL), cx1 = Math.floor((x + reach) / CELL);
     const cz0 = Math.floor((z - reach) / CELL), cz1 = Math.floor((z + reach) / CELL);
@@ -103,10 +107,11 @@ export class ProxyGrid<T extends { pos: SimV3; radius: number } = OrigObstacle> 
           const o = this.list[i];
           const lim = r + o.radius;
           const dx = o.pos.x - x, dz = o.pos.z - z;
-          if (dx * dx + dz * dz < lim * lim) out.push(o as unknown as U);
+          if (dx * dx + dz * dz < lim * lim) out[n++] = o as unknown as U;
         }
       }
     }
+    if (out.length !== n) out.length = n;
     return out;
   }
 }

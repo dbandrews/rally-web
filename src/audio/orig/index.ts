@@ -8,9 +8,11 @@
  *   loadOriginalSoundBank(ctx) → OriginalSoundBank | null
  *     null (the synthesised AudioEngine stays in use) without an asset manifest (absent assets, `?orig=0`,
  *     node / vitest) or when manifest.audio is false. Throws for real failures (the caller warns once and keeps
- *     the synth). Samples are fetched lazily: `load(keys)` fetches + decodes them (deduped, cached; a failing
- *     sample warns once and stays silent, as the original's failed `load`), `sample(key)` returns the buffer or
- *     null while it is not loaded.
+ *     the synth). Samples are fetched lazily: `load(keys, priority)` fetches + decodes them (deduped, cached, higher
+ *     priority first; a failing sample warns once and stays silent, as the original's failed `load`), `sample(key)`
+ *     returns the buffer or null while it is not loaded. The bank needs no running AudioContext (detachedBufferFactory):
+ *     AudioEngine builds it before the first user gesture and hands it to OriginalAudio on the gesture. Decodes that
+ *     finish while the race runs are time-sliced (setDecodeBudget), so a burst of downloads never stacks into one frame.
  *
  * Decoding: the WAV is parsed here (wav.ts) instead of decodeAudioData, so the AudioBuffer holds exactly the
  * original frames at the file's native rate (sample-exact loops over the WHOLE buffer, sound.md §12; the
@@ -35,8 +37,11 @@ export interface OriginalSoundBank {
   readonly patches: Readonly<Record<string, unknown>>;
   /** The whole bank (scripts, sample table, car templates, surface / collision tables, env, UI, co-driver). */
   readonly json: AudioBankJson;
-  /** Fetch + decode these sample keys (deduped; resolves when all settled, never rejects). */
-  load(keys: Iterable<string>): Promise<void>;
+  /** Fetch + decode these sample keys (deduped; resolves when all settled, never rejects). Queued fetches start
+   *  highest `priority` first (FIFO within one); asking again with a higher one moves a still-queued sample up. */
+  load(keys: Iterable<string>, priority?: number): Promise<void>;
+  /** Max ms of WAV parse + AudioBuffer fill per frame for downloads that finish now (Infinity: decode at once). */
+  setDecodeBudget(ms: number): void;
   /** Keys whose fetch / decode is still running. */
   readonly pending: number;
   dispose(): void;
@@ -45,6 +50,27 @@ export interface OriginalSoundBank {
 /** Minimal buffer factory (BaseAudioContext.createBuffer); a stub in the tests. */
 export interface BufferFactory {
   createBuffer(channels: number, frames: number, sampleRate: number): AudioBuffer;
+}
+
+/**
+ * AudioBuffers that need no AudioContext: `new AudioBuffer(...)` (any context can play them), else an OfflineAudioContext's
+ * createBuffer; null when neither exists (the caller then waits for its context).
+ */
+export function detachedBufferFactory(): BufferFactory | null {
+  try {
+    if (typeof AudioBuffer === 'function') {
+      new AudioBuffer({ numberOfChannels: 1, length: 1, sampleRate: 44100 });
+      return {
+        createBuffer: (channels, frames, sampleRate) => new AudioBuffer({ numberOfChannels: channels, length: frames, sampleRate }),
+      };
+    }
+    const Offline: typeof OfflineAudioContext | undefined =
+      typeof OfflineAudioContext === 'function' ? OfflineAudioContext : (globalThis as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+    if (Offline) return new Offline(1, 1, 44100);
+  } catch {
+    /* no detached buffers here */
+  }
+  return null;
 }
 
 /** Validate the bank JSON (shape checks only; the build step owns the content). */
@@ -78,16 +104,29 @@ export function scriptSampleKeys(bank: AudioBankJson, scripts: Iterable<string |
   return [...out];
 }
 
-/** Parallel sample fetches (the bank has ~580 small files; keep the request count bounded). */
-const MAX_INFLIGHT = 6;
+/** Parallel sample fetches (the bank has ~580 small files; keep the request count bounded; the deployment is HTTP/2). */
+const MAX_INFLIGHT = 12;
+
+const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+interface Waiter {
+  go(): void;
+  priority: number;
+}
 
 class Bank implements OriginalSoundBank {
   readonly patches: Readonly<Record<string, unknown>>;
   private readonly buffers = new Map<string, AudioBuffer>();
   private readonly jobs = new Map<string, Promise<void>>();
   private readonly lower = new Map<string, string>();
-  private readonly queue: (() => void)[] = [];
+  /** Fetches waiting for a slot, highest priority first. */
+  private readonly queue: Waiter[] = [];
+  private readonly waiting = new Map<string, Waiter>();
   private inflight = 0;
+  /** Downloaded files waiting to be decoded (only while the decode budget is finite). */
+  private readonly decodeQueue: (() => void)[] = [];
+  private decodeBudget = Infinity;
+  private pumpScheduled = false;
   private disposed = false;
   pending = 0;
 
@@ -111,62 +150,149 @@ class Bank implements OriginalSoundBank {
     return k ? (this.buffers.get(k) ?? null) : null;
   }
 
-  load(keys: Iterable<string>): Promise<void> {
+  load(keys: Iterable<string>, priority = 0): Promise<void> {
     const all: Promise<void>[] = [];
     for (const p of keys) {
       const k = this.key(p);
       if (!k) continue;
       let j = this.jobs.get(k);
       if (!j) {
-        j = this.fetchOne(k);
+        j = this.fetchOne(k, priority);
         this.jobs.set(k, j);
-      }
+      } else this.raise(k, priority);
       all.push(j);
     }
     return Promise.all(all).then(() => undefined);
   }
 
-  private async slot(): Promise<void> {
+  setDecodeBudget(ms: number): void {
+    this.decodeBudget = ms > 0 ? ms : Infinity;
+    if (this.decodeQueue.length) this.schedulePump();
+  }
+
+  /** Insert behind the last waiter of equal or higher priority. */
+  private enqueue(w: Waiter): void {
+    let i = this.queue.length;
+    while (i > 0 && this.queue[i - 1].priority < w.priority) i--;
+    this.queue.splice(i, 0, w);
+  }
+
+  /** A still-queued fetch asked for again with a higher priority moves up. */
+  private raise(k: string, priority: number): void {
+    const w = this.waiting.get(k);
+    if (!w || w.priority >= priority) return;
+    this.queue.splice(this.queue.indexOf(w), 1);
+    w.priority = priority;
+    this.enqueue(w);
+  }
+
+  private async slot(k: string, priority: number): Promise<void> {
     if (this.inflight < MAX_INFLIGHT) {
       this.inflight++;
       return;
     }
-    await new Promise<void>((r) => this.queue.push(r));
-    this.inflight++;
+    await new Promise<void>((resolve) => {
+      const w: Waiter = {
+        priority,
+        go: () => {
+          this.waiting.delete(k);
+          this.inflight++;
+          resolve();
+        },
+      };
+      this.waiting.set(k, w);
+      this.enqueue(w);
+    });
   }
 
   private release(): void {
     this.inflight--;
-    this.queue.shift()?.();
+    this.queue.shift()?.go();
   }
 
-  private async fetchOne(k: string): Promise<void> {
+  /** Run a decode now (no budget, nothing queued) or in a later task within the per-frame budget. Resolves after it ran. */
+  private decode(task: () => void): Promise<void> {
+    if (this.decodeBudget === Infinity && this.decodeQueue.length === 0) {
+      task();
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve, reject) => {
+      this.decodeQueue.push(() => {
+        try {
+          task();
+          resolve();
+        } catch (err) {
+          reject(err);
+        }
+      });
+      this.schedulePump();
+    });
+  }
+
+  /** Next frame (a timer backs a hidden tab, where rAF pauses). */
+  private schedulePump(): void {
+    if (this.pumpScheduled) return;
+    this.pumpScheduled = true;
+    const run = () => {
+      if (!this.pumpScheduled) return;
+      this.pumpScheduled = false;
+      this.pump();
+    };
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(run);
+      setTimeout(run, 100);
+    } else setTimeout(run, 0);
+  }
+
+  /** Decode queued downloads until the frame budget is spent (always at least one, so the queue drains). */
+  private pump(): void {
+    const t0 = nowMs();
+    while (this.decodeQueue.length) {
+      this.decodeQueue.shift()!();
+      if (nowMs() - t0 >= this.decodeBudget) break;
+    }
+    if (this.decodeQueue.length) this.schedulePump();
+  }
+
+  private async fetchOne(k: string, priority: number): Promise<void> {
     const e = this.json.samples[k];
     this.pending++;
-    await this.slot();
     try {
-      if (this.disposed) return;
-      const pcm = parseWav(await fetchArrayBuffer(samplePath(e.f)));
-      if (pcm.frames !== e.frames || pcm.rate !== e.rate || pcm.channels !== e.ch) {
-        throw new Error(`${e.f}: ${pcm.frames} frames @ ${pcm.rate} Hz × ${pcm.channels}, table says ${e.frames} @ ${e.rate} × ${e.ch}`);
+      let raw: ArrayBuffer;
+      await this.slot(k, priority);
+      try {
+        if (this.disposed) return;
+        raw = await fetchArrayBuffer(samplePath(e.f));
+      } finally {
+        this.release(); // the next download starts while this one waits for its decode turn
       }
-      if (this.disposed || pcm.frames === 0) return;
-      const buf = this.ctx.createBuffer(pcm.channels, pcm.frames, pcm.rate);
-      for (let c = 0; c < pcm.channels; c++) buf.copyToChannel(pcm.data[c], c);
-      this.buffers.set(k, buf);
+      await this.decode(() => this.decodeOne(k, raw));
     } catch (err) {
       // a failed sample stays silent (the original's failed load), one warning per file
       warnOnce(`audio-sample:${k}`, `audio: sample ${k} unavailable (${String(err)}); that layer stays silent`);
     } finally {
       this.pending--;
-      this.release();
     }
+  }
+
+  private decodeOne(k: string, raw: ArrayBuffer): void {
+    if (this.disposed) return;
+    const e = this.json.samples[k];
+    const pcm = parseWav(raw);
+    if (pcm.frames !== e.frames || pcm.rate !== e.rate || pcm.channels !== e.ch) {
+      throw new Error(`${e.f}: ${pcm.frames} frames @ ${pcm.rate} Hz × ${pcm.channels}, table says ${e.frames} @ ${e.rate} × ${e.ch}`);
+    }
+    if (pcm.frames === 0) return;
+    const buf = this.ctx.createBuffer(pcm.channels, pcm.frames, pcm.rate);
+    for (let c = 0; c < pcm.channels; c++) buf.copyToChannel(pcm.data[c], c);
+    this.buffers.set(k, buf);
   }
 
   dispose(): void {
     this.disposed = true;
     this.buffers.clear();
     this.jobs.clear();
+    if (this.decodeQueue.length) this.schedulePump(); // the queued decodes see `disposed` and settle their loads
   }
 }
 
@@ -175,7 +301,7 @@ export function createSoundBank(json: AudioBankJson, ctx: BufferFactory): Origin
   return new Bank(json, ctx);
 }
 
-export async function loadOriginalSoundBank(ctx: BaseAudioContext): Promise<OriginalSoundBank | null> {
+export async function loadOriginalSoundBank(ctx: BufferFactory): Promise<OriginalSoundBank | null> {
   const json = await loadBankJson();
   if (!json) return null;
   return new Bank(json, ctx);

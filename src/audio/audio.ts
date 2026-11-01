@@ -31,15 +31,20 @@
  * a thump on impacts. Everything ramps with setTargetAtTime, so the per-frame cost is a handful of
  * parameter writes.
  */
-import { warnOnce } from '../core/assets';
+import { urlParam, warnOnce } from '../core/assets';
 import { DT, SURFACE_INFO } from '../core/constants';
 import type { ArchetypeId, CarTelemetry, FrameContext, IAudioEngine, SurfaceId } from '../core/types';
-import { loadOriginalSoundBank } from './orig';
+import { detachedBufferFactory, loadOriginalSoundBank, type OriginalSoundBank } from './orig';
 import { MusicPlayer, musicEnabled } from './orig/music';
 import { type ListenerPose, OriginalAudio, type OriginalAudioDebug, type UiSoundName } from './orig/player';
+import { PRELOAD_PRIORITY, type RaceAudioSpec, raceSampleGroups, uiSampleKeys } from './orig/preload';
 
 const FIRING: Record<ArchetypeId, number> = { awd_wrc: 2, fwd_hatch: 2, rwd_classic: 2.5 };
 const PITCH: Record<ArchetypeId, number> = { awd_wrc: 1, fwd_hatch: 1.12, rwd_classic: 0.92 };
+/** Max ms of sample decoding per frame while the race runs (downloads finishing after GO queue up behind it). */
+const RACE_DECODE_BUDGET_MS = 3;
+/** preloadRace gives up waiting after this long (the samples keep loading). */
+const PRELOAD_CAP_MS = 20000;
 const SQUEAL_SURFACES: ReadonlySet<SurfaceId> = new Set(['tarmac', 'cobbles', 'water']);
 
 type Ctor = typeof AudioContext;
@@ -121,6 +126,9 @@ export interface AudioDebugState {
   cpuMs: number;
 }
 
+/** What a race will play (main.ts loadSelection): the same ids as FrameContext.stage.id / origCar / others[i].origCar. */
+export type { RaceAudioSpec };
+
 declare global {
   interface Window {
     /** Debug / tools: what the audio engine plays (tests/audio/browser-check.mjs). */
@@ -137,6 +145,9 @@ export class AudioEngine implements IAudioEngine {
   private failed = false;
   private mode: AudioDebugState['mode'] = 'idle';
   private orig: OriginalAudio | null = null;
+  /** The sound bank, fetched and decoded without an AudioContext (null result: no bank, the synth is used). */
+  private bankPromise: Promise<OriginalSoundBank | null> | null = null;
+  private bank: OriginalSoundBank | null = null;
   private music: MusicPlayer | null = null;
   private listener: (() => ListenerPose | null) | null = null;
   /** Smoothed CPU ms of update() (debugState). */
@@ -147,11 +158,64 @@ export class AudioEngine implements IAudioEngine {
   private lastImpactAt = -1;
   private wheelOmega = [0, 0, 0, 0];
 
+  constructor() {
+    // the bank JSON and the always-needed UI / co-driver samples download and decode before the first user gesture
+    if (typeof window !== 'undefined' && !/^(0|false|no|off)$/.test(urlParam('audio') ?? '')) void this.ensureBank();
+  }
+
   resume(): void {
     if (this.failed) return;
     if (!this.ac) this.build();
     const ac = this.ac;
     if (ac && ac.state === 'suspended') void ac.resume().catch(() => {});
+  }
+
+  /**
+   * Fetch + decode every sample the race needs before it starts (no user gesture needed): the player car's sets first, then
+   * the AI cars', the stage ambience and the UI / co-driver words. Resolves when they are decoded, at once without the
+   * original bank (no assets, ?orig=0, ?audio=0, synth mode); never rejects. The caller caps the wait. Safe to call again
+   * for a new selection (samples already loaded or queued are shared).
+   */
+  async preloadRace(spec: RaceAudioSpec): Promise<void> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      if (!this.enabled || this.failed) return;
+      const bank = await this.ensureBank();
+      if (!bank || this.bankPromise === null) return;
+      bank.setDecodeBudget(Infinity); // loading: decode at full speed
+      const loads = Promise.all(raceSampleGroups(bank.json, spec).map((g) => bank.load(g.keys, g.priority)));
+      // a stalled connection must not hold a caller that forgot its own cap
+      await Promise.race([loads, new Promise<void>((r) => (timer = setTimeout(r, PRELOAD_CAP_MS)))]);
+    } catch (e) {
+      warnOnce('audio-preload', `audio: race preload failed (${String(e)})`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The original sound bank, started once: the JSON, then the UI / menu / co-driver samples. A buffer needs no running context,
+   * so none of this waits for the gesture (only AudioContext.resume does); the same bank is handed to OriginalAudio.
+   * Resolves null without a bank (the synth is used), never rejects.
+   */
+  private ensureBank(): Promise<OriginalSoundBank | null> {
+    if (this.bankPromise) return this.bankPromise;
+    const factory = detachedBufferFactory() ?? this.ac;
+    if (!factory) return Promise.resolve(null); // no detached buffers here: the first resume() retries with its context
+    const p = loadOriginalSoundBank(factory)
+      .then((bank) => {
+        if (bank && this.bankPromise === p) {
+          this.bank = bank;
+          void bank.load(uiSampleKeys(bank.json), PRELOAD_PRIORITY.ui);
+        } else bank?.dispose(); // the engine was disposed meanwhile
+        return bank;
+      })
+      .catch((e) => {
+        warnOnce('audio-bank', `audio: original sound bank unavailable (${String(e)}); using the synthesised sounds`);
+        return null;
+      });
+    this.bankPromise = p;
+    return p;
   }
 
   /** The context runs (or can never start: no Web Audio): main.ts's gesture hook stops calling resume(). */
@@ -192,24 +256,21 @@ export class AudioEngine implements IAudioEngine {
       current = this;
       if (typeof window !== 'undefined') window.__rallyAudio = { state: () => this.debugState() };
       if (musicEnabled()) this.music = new MusicPlayer();
-      // the original bank when built (silent while its JSON loads), else the synth
-      loadOriginalSoundBank(ac)
-        .then((bank) => {
-          if (this.ac !== ac) {
-            bank?.dispose();
-            return;
-          }
-          if (!bank) {
-            this.buildSynth();
-            return;
-          }
+      // the original bank (usually loaded by now; silent while its JSON loads), else the synth
+      void this.ensureBank().then((bank) => {
+        if (this.ac !== ac) return;
+        if (!bank) {
+          this.buildSynth();
+          return;
+        }
+        try {
           this.orig = new OriginalAudio(ac, bank, out);
           this.mode = 'original';
-        })
-        .catch((e) => {
+        } catch (e) {
           warnOnce('audio-bank', `audio: original sound bank unavailable (${String(e)}); using the synthesised sounds`);
-          if (this.ac === ac) this.buildSynth();
-        });
+          this.buildSynth();
+        }
+      });
     } catch (e) {
       console.warn('audio: unavailable', e);
       this.failed = true;
@@ -327,6 +388,8 @@ export class AudioEngine implements IAudioEngine {
   }
 
   update(ctx: Readonly<FrameContext>): void {
+    // samples that finish downloading mid-race decode a few ms per frame (a burst never stacks into one frame)
+    this.bank?.setDecodeBudget(ctx.race.phase === 'running' ? RACE_DECODE_BUDGET_MS : Infinity);
     const ac = this.ac;
     if (!ac || ac.state !== 'running') return;
     const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
@@ -467,6 +530,10 @@ export class AudioEngine implements IAudioEngine {
     this.g = null;
     this.orig?.dispose();
     this.orig = null;
+    const bank = this.bankPromise;
+    this.bankPromise = null;
+    this.bank = null;
+    void bank?.then((b) => b?.dispose());
     this.music?.dispose();
     this.music = null;
     if (current === this) current = null;

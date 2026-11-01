@@ -46,6 +46,7 @@ import {
   type TmMesh,
 } from './objectsData';
 import { createBillboardMaterial, createObjMaterial, type ObjPass } from './objectsShaders';
+import { StaticWorld } from './staticWorld';
 
 export const OBJECTS_PART = 'objects';
 
@@ -86,6 +87,27 @@ interface BaseGeom {
   tree: boolean;
 }
 
+/** Instance slots written since a dynamic instance buffer was last uploaded (an upload empties it). */
+class Dirty {
+  lo = Infinity;
+  hi = 0;
+  mark(w: number): void {
+    if (w < this.lo) this.lo = w;
+    if (w >= this.hi) this.hi = w + 1;
+  }
+  reset(): void {
+    this.lo = Infinity;
+    this.hi = 0;
+  }
+  /** Queue the pending slots [lo, hi) as the buffer's one update range. */
+  flush(buf: THREE.InterleavedBuffer, stride: number): void {
+    if (this.hi <= this.lo) return;
+    buf.clearUpdateRanges();
+    buf.addUpdateRange(this.lo * stride, (this.hi - this.lo) * stride);
+    buf.needsUpdate = true;
+  }
+}
+
 /** Visible-instance scratch per template (reused). */
 interface Scratch {
   idx: Uint32Array;
@@ -111,6 +133,9 @@ interface BillboardBatch {
   alpha: Float32Array;
   order: Uint32Array;
   n: number;
+  /** Instance index in each buffer slot as last written (0xFFFFFFFF = never), and the slots not yet uploaded. */
+  slotIdx: Uint32Array;
+  dirty: Dirty;
 }
 
 class TemplateBatch {
@@ -134,6 +159,11 @@ class TemplateBatch {
   readonly scratch: Scratch;
   readonly counts: Int32Array;
   readonly starts: Int32Array;
+  /** What each slot of `data` holds (source instance and alpha, as last written) so unchanged slots are not
+   *  rewritten, and the slots written since the last upload. */
+  readonly slotIdx: Uint32Array;
+  readonly slotAlpha: Float32Array;
+  readonly dirty = new Dirty();
   rMaxAll = 0;
   /** Impostors (billboard trees with an atlas). */
   bb: BillboardBatch | null = null;
@@ -149,6 +179,9 @@ class TemplateBatch {
     this.data = new Float32Array(Math.max(1, this.n) * RIS);
     this.buf = new THREE.InstancedInterleavedBuffer(this.data, RIS, 1);
     this.buf.setUsage(THREE.DynamicDrawUsage);
+    this.buf.onUpload(() => this.dirty.reset());
+    this.slotIdx = new Uint32Array(Math.max(1, this.n)).fill(0xffffffff);
+    this.slotAlpha = new Float32Array(Math.max(1, this.n));
     this.keyed = Array.from({ length: nKeys }, () => []);
     this.all = [];
     this.counts = new Int32Array(nKeys);
@@ -219,6 +252,8 @@ class ObjectsView implements OrigComponent {
   private readonly camPos = new THREE.Vector3();
   private readonly frame = { i0: 0, t: 0 };
   private readonly useHotspots: boolean;
+  /** The batch meshes never move: their world matrices are computed once (staticWorld.ts). */
+  private readonly staticWorld = new StaticWorld(this.object3D);
   private hintS: number | undefined;
   private disposed = false;
   readonly lastStats: ObjectsStats = { templates: 0, instances: 0, visible: 0, billboards: 0, drawn: 0, meshes: 0, drawCalls: 0, triangles: 0, queued: 0 };
@@ -395,6 +430,8 @@ class ObjectsView implements OrigComponent {
     const data = new Float32Array(Math.max(1, n) * BIS);
     const buf = new THREE.InstancedInterleavedBuffer(data, BIS, 1);
     buf.setUsage(THREE.DynamicDrawUsage);
+    const dirty = new Dirty();
+    buf.onUpload(() => dirty.reset());
     g.setAttribute('iB0', new THREE.InterleavedBufferAttribute(buf, 4, 0));
     g.setAttribute('iB1', new THREE.InterleavedBufferAttribute(buf, 4, 4));
     g.setAttribute('iB2', new THREE.InterleavedBufferAttribute(buf, 4, 8));
@@ -431,6 +468,8 @@ class ObjectsView implements OrigComponent {
       alpha: new Float32Array(n),
       order: new Uint32Array(n),
       n: 0,
+      slotIdx: new Uint32Array(Math.max(1, n)).fill(0xffffffff),
+      dirty,
     };
   }
 
@@ -465,7 +504,8 @@ class ObjectsView implements OrigComponent {
   }
 
   private bind(b: Bucket, buf: THREE.InstancedInterleavedBuffer, start: number, count: number): void {
-    if (b.start !== start) {
+    // a bucket that draws nothing keeps its bound range (it is not drawn; the next visible frame rebinds if needed)
+    if (count > 0 && b.start !== start) {
       const o = start * RIS;
       b.geom.setAttribute('iRow0', new THREE.InterleavedBufferAttribute(buf, 4, o));
       b.geom.setAttribute('iRow1', new THREE.InterleavedBufferAttribute(buf, 4, o + 4));
@@ -537,6 +577,7 @@ class ObjectsView implements OrigComponent {
     st.drawCalls = calls;
     st.triangles = tris;
     st.meshes = this.object3D.children.length;
+    this.staticWorld.update(this.object3D.children);
   }
 
   private updateBatch(b: TemplateBatch, s: ObjectsSettings, cf: CullFrame, cx: number, cy: number, cz: number): void {
@@ -625,23 +666,31 @@ class ObjectsView implements OrigComponent {
         if (counts[k] > 1) sortRangeByDistDesc(perm, starts[k], starts[k] + counts[k], sc.dist);
       }
     }
+    // a slot is rewritten only when its (instance, alpha) differs from what it holds (the rest of the record is
+    // static), and only the written slots are uploaded
     const data = b.data;
+    const slotIdx = b.slotIdx;
+    const slotAlpha = b.slotAlpha;
+    const dirty = b.dirty;
+    let wrote = false;
     for (let w = 0; w < sc.n; w++) {
       const k = perm[w];
       const i = sc.idx[k];
+      const al = sc.alpha[k];
+      if (slotIdx[w] === i && slotAlpha[w] === al) continue;
+      slotIdx[w] = i;
+      slotAlpha[w] = al;
       const o = i * INST_STRIDE;
       const q = w * RIS;
       for (let c = 0; c < 16; c++) data[q + c] = src[o + c];
-      data[q + 16] = sc.alpha[k];
+      data[q + 16] = al;
       data[q + 17] = 0;
       data[q + 18] = 0;
       data[q + 19] = 0;
+      dirty.mark(w);
+      wrote = true;
     }
-    if (sc.n > 0) {
-      b.buf.clearUpdateRanges();
-      b.buf.addUpdateRange(0, sc.n * RIS);
-      b.buf.needsUpdate = true;
-    }
+    if (wrote) dirty.flush(b.buf, RIS);
     for (let k = 0; k < b.nKeys; k++) for (const bk of b.keyed[k]) this.bind(bk, b.buf, starts[k], counts[k]);
     for (const bk of b.all) this.bind(bk, b.buf, 0, sc.n);
   }
@@ -656,6 +705,9 @@ class ObjectsView implements OrigComponent {
     const data = bb.data;
     const q7 = bb.quad;
     const fr = this.frame;
+    const slotIdx = bb.slotIdx;
+    const dirty = bb.dirty;
+    let wrote = false;
     for (let w = 0; w < n; w++) {
       const k = order[w];
       const i = bb.idx[k];
@@ -665,6 +717,11 @@ class ObjectsView implements OrigComponent {
       const dzSim = -(cz - src[o + 11]);
       billboardFrame(treeSortU(dxSim, dzSim, src[o + INST.SORT_Z], src[o + INST.SORT_Z + 1], src[o + INST.SORT_X], src[o + INST.SORT_X + 1]), bb.dirs, fr);
       const d = w * BIS;
+      const tb = byteQ(fr.t); // specular alpha byte (ftol(t·255)), the lrp weight
+      const al = bb.alpha[k];
+      // the rest of the record is static per instance: an unchanged (instance, frame pair, weight, alpha) is skipped
+      if (slotIdx[w] === i && data[d + 7] === fr.i0 && data[d + 8] === Math.fround(tb) && data[d + 9] === al) continue;
+      slotIdx[w] = i;
       data[d] = q7[q];
       data[d + 1] = q7[q + 1];
       data[d + 2] = q7[q + 2];
@@ -673,20 +730,18 @@ class ObjectsView implements OrigComponent {
       data[d + 5] = q7[q + 5];
       data[d + 6] = q7[q + 6];
       data[d + 7] = fr.i0;
-      data[d + 8] = byteQ(fr.t); // specular alpha byte (ftol(t·255)), the lrp weight
-      data[d + 9] = bb.alpha[k];
+      data[d + 8] = tb;
+      data[d + 9] = al;
       data[d + 10] = src[o + INST.SHADOW];
       data[d + 11] = 0;
       data[d + 12] = src[o + INST.COLOR];
       data[d + 13] = src[o + INST.COLOR + 1];
       data[d + 14] = src[o + INST.COLOR + 2];
       data[d + 15] = 0;
+      dirty.mark(w);
+      wrote = true;
     }
-    if (n > 0) {
-      bb.buf.clearUpdateRanges();
-      bb.buf.addUpdateRange(0, n * BIS);
-      bb.buf.needsUpdate = true;
-    }
+    if (wrote) dirty.flush(bb.buf, BIS);
     bb.geom.instanceCount = n;
     bb.mesh.visible = n > 0;
     this.lastStats.billboards += n;
@@ -716,25 +771,61 @@ function fillScratch(n: number): Int32Array {
   return fillBuf;
 }
 
-/** Insertion sort for small ranges, else a typed-array sort by key (distance, descending). */
-function sortRangeByDistDesc(perm: Uint32Array, a: number, b: number, dist: Float32Array): void {
+let sortTmp = new Uint32Array(1024);
+/** Runs of this many are insertion-sorted, then merged (also the largest range sorted by insertion alone). */
+const SORT_RUN = 24;
+
+/**
+ * Sorts perm[a, b) by dist[perm[i]] descending, stable (ties keep their order): insertion sort for small ranges,
+ * else insertion-sorted runs merged bottom-up through a persistent scratch (no per-call allocation). The result is
+ * the one `Array.prototype.sort` (stable) gives with the comparator dist[y] - dist[x].
+ */
+export function sortRangeByDistDesc(perm: Uint32Array, a: number, b: number, dist: Float32Array): void {
   const n = b - a;
-  if (n <= 24) {
-    for (let i = a + 1; i < b; i++) {
+  for (let lo = a; lo < b; lo += SORT_RUN) {
+    const hi = Math.min(lo + SORT_RUN, b);
+    for (let i = lo + 1; i < hi; i++) {
       const v = perm[i];
       const dv = dist[v];
       let j = i - 1;
-      while (j >= a && dist[perm[j]] < dv) {
+      while (j >= lo && dist[perm[j]] < dv) {
         perm[j + 1] = perm[j];
         j--;
       }
       perm[j + 1] = v;
     }
-    return;
   }
-  const sub = Array.from(perm.subarray(a, b));
-  sub.sort((x, y) => dist[y] - dist[x]);
-  perm.set(sub, a);
+  if (n <= SORT_RUN) return;
+  if (sortTmp.length < n) sortTmp = new Uint32Array(Math.max(n, sortTmp.length * 2));
+  let src: Uint32Array = perm;
+  let dst: Uint32Array = sortTmp;
+  let so = a; // offset of the range inside src / dst
+  let dofs = 0;
+  for (let w = SORT_RUN; w < n; w *= 2) {
+    for (let lo = 0; lo < n; lo += 2 * w) {
+      const mid = Math.min(lo + w, n);
+      const hi = Math.min(lo + 2 * w, n);
+      let l = so + lo;
+      let r = so + mid;
+      const le = so + mid;
+      const re = so + hi;
+      let o = dofs + lo;
+      while (l < le && r < re) {
+        // take the right element only when strictly farther (ties keep the left one first)
+        if (dist[src[r]] > dist[src[l]]) dst[o++] = src[r++];
+        else dst[o++] = src[l++];
+      }
+      while (l < le) dst[o++] = src[l++];
+      while (r < re) dst[o++] = src[r++];
+    }
+    const t = src;
+    src = dst;
+    dst = t;
+    const to = so;
+    so = dofs;
+    dofs = to;
+  }
+  if (src !== perm) for (let i = 0; i < n; i++) perm[a + i] = src[so + i];
 }
 
 /** Loads stages/<id>/objects.{json,bin}; null when the part is absent. Throws on real failures (the view warns once). */

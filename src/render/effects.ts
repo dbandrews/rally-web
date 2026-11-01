@@ -160,10 +160,16 @@ export class ParticleSystem {
 
   /**
    * Stage switch: `original` = the stage is shown through an OriginalStageView. Loads the stage's original
-   * effects (async; until then and on any failure the procedural effects run). Never throws.
+   * effects (async; until then and on any failure the procedural effects run). Never throws; the promise settles once
+   * the original effects are in place (or failed), main.ts's loading screen waits for it.
    */
-  setStage(stageId: string | null, original: boolean, store: TextureStore | null): void {
-    void this.orig.setStage(stageId, original, store).catch(() => undefined);
+  setStage(stageId: string | null, original: boolean, store: TextureStore | null): Promise<void> {
+    return this.orig.setStage(stageId, original, store).catch(() => undefined);
+  }
+
+  /** The original effects and the cars' own effect data / drop shadows requested so far have loaded (or failed). */
+  settled(): Promise<void> {
+    return this.orig.settled();
   }
 
   setEnvironment(env: EnvironmentPreset): void {
@@ -587,6 +593,11 @@ export class CarEffects {
     for (const m of this.lastMark) m.x = m.z = 1e9;
     this.acc.fill(0);
     this.orig.reset();
+  }
+
+  /** The car's original effects data and drop shadow (with its texture) have loaded, or failed. Never rejects. */
+  whenReady(): Promise<void> {
+    return this.orig.whenReady();
   }
 
   /** Release the original effects of this car (emitters, drop shadow). */

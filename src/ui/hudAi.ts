@@ -92,7 +92,10 @@ export class AiHud {
   private readonly pos: HTMLElement;
   private readonly strip: HTMLElement;
   private bar: HTMLElement | null = null;
-  private readonly dots = new Map<string, HTMLElement>();
+  /** Progress-bar dots with the style / class last written (written only when they change). */
+  private readonly dots = new Map<string, { el: HTMLElement; left: string; fin: boolean }>();
+  /** The results screen's live standings table, while it is in the document. */
+  private table: Element | null = null;
   private posKey = '';
   private stripKey = '';
   private tableKey = '';
@@ -165,33 +168,42 @@ export class AiHud {
       live.add(c.id);
       let d = this.dots.get(c.id);
       if (!d) {
-        d = document.createElement('i');
-        d.className = 'rw-ai-dot';
-        d.style.background = aiColor(c.id);
-        d.title = c.name;
-        bar.appendChild(d);
+        const e = document.createElement('i');
+        e.className = 'rw-ai-dot';
+        e.style.background = aiColor(c.id);
+        e.title = c.name;
+        bar.appendChild(e);
+        d = { el: e, left: '', fin: false };
         this.dots.set(c.id, d);
       }
       const p = c.progress ?? (typeof c.ai?.progress === 'number' ? c.ai.progress : 0);
-      d.style.left = `${(Math.min(1, Math.max(0, p)) * 100).toFixed(2)}%`;
-      d.classList.toggle('rw-fin', c.finished);
+      const left = `${(Math.min(1, Math.max(0, p)) * 100).toFixed(2)}%`;
+      if (left !== d.left) {
+        d.left = left;
+        d.el.style.left = left;
+      }
+      if (c.finished !== d.fin) {
+        d.fin = c.finished;
+        d.el.classList.toggle('rw-fin', c.finished);
+      }
     }
     for (const [id, d] of this.dots) {
       if (!live.has(id)) {
-        d.remove();
+        d.el.remove();
         this.dots.delete(id);
       }
     }
   }
 
   private clearDots(): void {
-    for (const d of this.dots.values()) d.remove();
+    for (const d of this.dots.values()) d.el.remove();
     this.dots.clear();
   }
 
   /** The results screen's standings table (menuAi.aiResultsHtml) follows the field while AI cars are still racing. */
   private refreshResults(f: Readonly<FieldSnapshot>): void {
-    const t = document.querySelector('.rw-ai-table[data-live]');
+    if (!this.table?.isConnected) this.table = document.querySelector('.rw-ai-table[data-live]');
+    const t = this.table;
     if (!t) {
       this.tableKey = '';
       return;
@@ -205,6 +217,7 @@ export class AiHud {
 
   dispose(): void {
     this.clearDots();
+    this.table = null;
     this.root.remove();
   }
 }

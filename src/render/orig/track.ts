@@ -67,6 +67,7 @@ import {
   WATER_FS,
   WATER_VS,
 } from './trackShaders';
+import { StaticWorld } from './staticWorld';
 
 export const TRACK_PART = 'track';
 
@@ -141,6 +142,9 @@ class TrackComponent implements OrigComponent {
   /** Root node index of each patch mesh's quadtree (Track.qm, Water.qm) in `nodes`. */
   private readonly roots: number[] = [];
   private patches: PatchMesh[] = [];
+  /** The patch meshes never move: their world matrices are computed once (staticWorld.ts). */
+  private readonly staticWorld = new StaticWorld(this.object3D);
+  private patchMeshes: THREE.Mesh[] | null = null;
   private world: THREE.Mesh | null = null;
   /** 'sky': drawn by the environment pipeline's sky pass (ORIG_SKY_LAYER); 'own': emulated in the main render. */
   worldMode: 'sky' | 'own' = 'sky';
@@ -691,6 +695,8 @@ class TrackComponent implements OrigComponent {
     this.object3D.updateMatrixWorld();
     const mw = this.object3D.matrixWorld;
     this.projScreen.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).multiply(mw);
+    this.patchMeshes ??= this.patches.map((p) => p.mesh);
+    this.staticWorld.update(this.patchMeshes);
     this.frustum.setFromProjectionMatrix(this.projScreen, cam.coordinateSystem);
     camera.getWorldDirection(this.camDir);
     this.farPlane.normal.copy(this.camDir).negate();

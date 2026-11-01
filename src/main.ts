@@ -80,6 +80,7 @@ import { normalizeCarSelection, originalStagesFirst, withDefaultOrigCar } from '
 import { RaceController, START_GRID_BACK_M } from './game/race';
 import { isTypingTarget } from './input/bindings';
 import { InputManager } from './input/input';
+import { capped } from './render/loadCap';
 import { loadCarInfo } from './render/orig/car';
 import { GameRenderer } from './render/renderer';
 import { CarSim } from './sim/car';
@@ -96,6 +97,15 @@ import { attachOriginalWorld } from './world/orig';
 import { buildStage, listStages } from './world/stages';
 
 const PLAYER_ID = 'player';
+/** The race audio (samples of the stage, the player's and the opponents' cars) loads with the race, once the scene's own
+ *  downloads are in (so it does not slow them); a slow network holds the start for at most this long beyond them, the sounds
+ *  then arrive as they decode. */
+const AUDIO_PRELOAD_CAP_MS = 6000;
+/** The ghost's car visual loads behind the loading screen too, but a stalled fetch must not hold the start: it then
+ *  arrives during the race (hidden until loaded, as at HEAD's add-at-GO). */
+const GHOST_CAR_CAP_MS = 8000;
+/** The ghost's renderer car id (GhostSession.renderState: one playback ghost per race). */
+const GHOST_ID = 'ghost';
 const TUNABLE_ROOTS = ['car', 'input', 'camera', 'surfaces', 'loop'] as const;
 type TunableRoot = (typeof TUNABLE_ROOTS)[number];
 /** Race events the test API keeps between two getRaceEvents() calls. */
@@ -219,6 +229,8 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   private physicsSteps = 0;
   private fps = 60;
   private loading = false;
+  /** An adaptive quality step is being applied (applySafeQuality). */
+  private qualityBusy = false;
   /** Bumped by every loadSelection: an older load that resumes after a newer one started gives up. */
   private loadToken = 0;
   /** Largest impact impulse over the substeps since the last rendered frame (FrameContext.impactImpulseMax). */
@@ -369,9 +381,39 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       await Promise.all([stageLoad, carLoad, fieldLoad, ghostLoad]);
       if (token !== this.loadToken) return; // a newer load owns the renderer / stage / car now
       this.beginRace(sel, o);
+      await this.finishLoad(this.preloadAudio(sel));
     } finally {
       if (token === this.loadToken) this.loading = false;
     }
+  }
+
+  /** Start fetching + decoding the race's sounds (AudioEngine.preloadRace; shared with what is loaded already): the stage,
+   *  the player's car and the opponents' cars now in the field. Never rejects. */
+  private preloadAudio(sel: RaceSelection): Promise<void> {
+    return this.audio.preloadRace({ stageId: sel.stageId, car: sel.car ?? null, aiCars: [...this.aiCars.values()] }).catch(() => undefined);
+  }
+
+  /**
+   * The end of a load, behind the loading screen: the ghost's car (known once the race has begun; capped), then the race
+   * audio (started once the scene's downloads are in; capped) together with the renderer's GPU warm-up, so nothing a race
+   * draws or plays is fetched, compiled or uploaded after GO. The first frame after it does not count the time it took.
+   */
+  private async finishLoad(audioLoad: Promise<void> | null): Promise<void> {
+    await capped(this.addGhostCar(), GHOST_CAR_CAP_MS);
+    await Promise.all([audioLoad && capped(audioLoad, AUDIO_PRELOAD_CAP_MS), this.renderer.warmUp()]);
+    this.lastNow = -1;
+  }
+
+  /** The race's ghost has a known car (GhostSession attached it when the race began): its visual is added now, hidden until
+   *  the ghost has a pose, instead of being fetched at GO. A ghost that attaches later (late fetch) still adds it at first sight. */
+  private async addGhostCar(): Promise<void> {
+    const look = this.race.ghostLook();
+    if (!look) return;
+    const key = look.origCar ?? look.archetype;
+    if (this.ghostCars.get(GHOST_ID) === key) return;
+    if (this.ghostCars.has(GHOST_ID)) this.renderer.removeCar(GHOST_ID);
+    this.ghostCars.set(GHOST_ID, key);
+    await this.renderer.addCar(GHOST_ID, look.archetype, { ghost: true, player: false, origCar: look.origCar });
   }
 
   /** A fresh CarSim for `sel` on the loaded world. */
@@ -429,25 +471,35 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     // PHASE 2: the AI field is rebuilt for every race (new sims, a possibly different roster); a solo race that stays solo
     // skips the whole branch
     const fieldChanged = !!sel.opponents || this.field.opponents.length > 0;
-    if (carChanged || fieldChanged) {
-      // a new car / field: the visuals are in before the race begins, as in loadSelection (no procedural stand-in)
-      const token = ++this.loadToken;
-      this.loading = true;
-      try {
+    const token = ++this.loadToken;
+    let audioLoad: Promise<void> | null = null;
+    try {
+      if (carChanged || fieldChanged) {
+        // a new car / field: the visuals are in before the race begins, as in loadSelection (no procedural stand-in)
+        this.loading = true;
         if (carChanged) {
           this.clearGhostCars();
           this.renderer.removeCar(PLAYER_ID);
           await Promise.all([this.renderer.addCar(PLAYER_ID, sel.archetype, { player: true, origCar: sel.car }), this.prepareField(sel)]);
         } else await this.prepareField(sel);
         if (token !== this.loadToken) return; // a newer load owns the renderer / car now
-      } finally {
-        if (token === this.loadToken) this.loading = false;
+        audioLoad = this.preloadAudio(sel); // the new car's / field's sounds
       }
+      if (sel.ghost?.source === 'team' || sel.ghost?.source === 'user') await this.race.prepareGhost(sel.ghost); // PHASE 2 (ghosts): the file is in place before the race begins
+      this.makeCar(sel);
+      this.beginRace(sel, { countdown: true });
+      this.renderer.resetStageEffects();
+      // what this race needs beyond the loaded scene (a new car / field, a ghost in another car, an adaptive quality step that
+      // was waiting) is loaded and warmed behind the loading screen; a plain restart changes nothing and starts at once
+      const look = this.race.ghostLook();
+      const ghostChanged = !!look && this.ghostCars.get(GHOST_ID) !== (look.origCar ?? look.archetype);
+      if (this.loading || ghostChanged || this.renderer.hasPendingQuality) {
+        this.loading = true;
+        await this.finishLoad(audioLoad);
+      }
+    } finally {
+      if (token === this.loadToken) this.loading = false;
     }
-    if (sel.ghost?.source === 'team' || sel.ghost?.source === 'user') await this.race.prepareGhost(sel.ghost); // PHASE 2 (ghosts): the file is in place before the race begins
-    this.makeCar(sel);
-    this.beginRace(sel, { countdown: true });
-    this.renderer.resetStageEffects();
   }
 
   // ----------------------------------------------------------------------------------------- PHASE 2: field + ghosts
@@ -505,8 +557,12 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
   }
 
   /** Keep the renderer's ghost cars in step with RaceController.ghostRenderStates (added when first shown, replaced when
-   *  the ghost's car changes, removed when it disappears). Not awaited: a ghost's stand-in stays hidden until loaded. */
+   *  the ghost's car changes, removed when it disappears). The ghost of a race normally has its car already (loadSelection /
+   *  restartInPlace add it, hidden, behind the loading screen) and keeps it through the countdown; a ghost that attached late
+   *  is added here at first sight. Not awaited: a ghost's stand-in stays hidden until loaded. */
   private syncGhostCars(states: readonly CarRenderState[]): void {
+    const look = this.race.ghostLook();
+    const wanted = look ? (look.origCar ?? look.archetype) : null;
     const seen = new Set<string>();
     for (const g of states) {
       seen.add(g.id);
@@ -517,8 +573,8 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       void this.renderer.addCar(g.id, g.archetype, { ghost: true, player: false, origCar: g.origCar });
       this.ghostCars.set(g.id, key);
     }
-    for (const id of [...this.ghostCars.keys()]) {
-      if (seen.has(id)) continue;
+    for (const [id, key] of [...this.ghostCars]) {
+      if (seen.has(id) || (id === GHOST_ID && key === wanted)) continue; // shown, or waiting for GO
       this.renderer.removeCar(id);
       this.ghostCars.delete(id);
     }
@@ -545,7 +601,19 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
     this.lastNow = now;
     if (this.loading) return;
     this.frame(raw);
+    if (this.renderer.hasPendingQuality) this.applySafeQuality();
   };
+
+  /** An adaptive quality step-down is decided while racing but only applied where a hitch is harmless: before GO (idle /
+   *  countdown), paused or in a menu, at the results (the renderer then warms up for the new pipeline state). */
+  private applySafeQuality(): void {
+    const ph = this.race.state.phase;
+    if (this.qualityBusy || (ph === 'running' && !this.loop.paused && !this.menu.visible)) return;
+    this.qualityBusy = true;
+    void this.renderer.applyPendingQuality().finally(() => {
+      this.qualityBusy = false;
+    });
+  }
 
   private frame(rawDt: number): void {
     const tick = this.loop.advance(rawDt);
@@ -1032,6 +1100,9 @@ class App implements IMenuHost, ITuningHost, TestApiHost {
       hullCar: this.car.hullCar,
       voice: uiSettings.voice,
     };
+  }
+  renderInfo(names = false): ReturnType<GameRenderer['renderInfo']> {
+    return this.renderer.renderInfo(names);
   }
   frameStats(): FrameStats {
     return {

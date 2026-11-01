@@ -111,6 +111,11 @@ function sectorsOf(stage: Stage): Sector[] {
   return out;
 }
 
+/** `a === b`, with NaN equal to itself (what comparing the numbers' strings gave). */
+function sameNumber(a: number, b: number): boolean {
+  return a === b || (a !== a && b !== b);
+}
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, html?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -126,7 +131,7 @@ export class Hud implements IHud {
   private readonly stageInfo: HTMLElement;
   private readonly bar: HTMLDivElement;
   private readonly marker: HTMLDivElement;
-  private segs: { el: HTMLDivElement; fill: HTMLElement; start: number; len: number }[] = [];
+  private segs: { el: HTMLDivElement; fill: HTMLElement; start: number; len: number; width: string }[] = [];
   private readonly progressBox: HTMLDivElement;
   // clock
   private readonly time: HTMLElement;
@@ -136,7 +141,9 @@ export class Hud implements IHud {
   // notes
   private readonly notesEl: HTMLDivElement;
   private noteKey = '';
-  private noteCards: { el: HTMLElement; dist: HTMLElement; note: Pacenote }[] = [];
+  private noteCards: { el: HTMLElement; dist: HTMLElement; note: Pacenote; passed: boolean }[] = [];
+  /** The `s` of each pacenote the cards were built for (the list is edited in place, so compared by value). */
+  private noteS: number[] = [];
   // gauge
   private readonly rpmArc: SVGPathElement;
   private readonly redArc: SVGPathElement;
@@ -165,6 +172,15 @@ export class Hud implements IHud {
   private lastMsg = '';
   private chipKey = '';
   private readonly cache = new Map<string, string>();
+  // last values written to the DOM every frame (a property is written only when it changed)
+  private fadeV = '';
+  private hiddenV: boolean | null = null;
+  private markerV = '';
+  private lapShown: boolean | null = null;
+  private cpOn: boolean | null = null;
+  private rpmDashV = '';
+  private rpmStrokeV = '';
+  private boostV = '';
   private readonly voice = new CoDriverVoice();
   /** PHASE 2 hook (ai-race builder, src/ui/hudAi.ts): race position / standings. */
   private readonly aiHud: AiHud;
@@ -291,9 +307,13 @@ export class Hud implements IHud {
     const dt = ctx.frameDt;
     // reset fade always drawn (even when the HUD is hidden)
     const fade = Math.max(0, Math.min(1, r.fade));
-    this.fade.style.opacity = fade.toFixed(3);
+    const fadeV = fade.toFixed(3);
+    if (fadeV !== this.fadeV) {
+      this.fadeV = fadeV;
+      this.fade.style.opacity = fadeV;
+    }
     const showHud = this.visible && uiSettings.hud && r.phase !== 'idle';
-    this.wrap.classList.toggle('rw-hidden', !showHud);
+    this.setHidden(!showHud);
 
     // stage change → rebuild sectors
     const sk = `${ctx.stage.id}#${ctx.stage.seed}`;
@@ -308,6 +328,7 @@ export class Hud implements IHud {
         this.splitShowT = this.cpShowT = 0;
         this.splitEl.classList.remove('rw-on');
         this.cp.classList.remove('rw-on');
+        this.cpOn = false;
       }
       this.lastPhase = r.phase;
     }
@@ -322,7 +343,11 @@ export class Hud implements IHud {
 
     // ---- progress
     const prog = Math.max(0, Math.min(1, r.progress));
-    this.marker.style.left = `${(prog * 100).toFixed(2)}%`;
+    const markerV = `${(prog * 100).toFixed(2)}%`;
+    if (markerV !== this.markerV) {
+      this.markerV = markerV;
+      this.marker.style.left = markerV;
+    }
     const bs = r.bestSplits;
     for (let i = 0; i < this.segs.length; i++) {
       const sg = this.segs[i];
@@ -337,16 +362,22 @@ export class Hud implements IHud {
       if (cur) cls += ' rw-cur';
       if (sg.el.className !== cls) sg.el.className = cls;
       const f = done ? 1 : cur ? Math.max(0, Math.min(1, (prog - sg.start) / Math.max(1e-6, sg.len))) : 0;
-      sg.fill.style.width = `${(f * 100).toFixed(1)}%`;
+      const wv = `${(f * 100).toFixed(1)}%`;
+      if (wv !== sg.width) {
+        sg.width = wv;
+        sg.fill.style.width = wv;
+      }
     }
 
     // ---- clock
     this.setText('time', this.time, formatTime(r.phase === 'countdown' ? 0 : r.time));
     this.setHtml('best', this.bestEl, r.bestTime !== null ? `BEST <b>${formatTime(r.bestTime)}</b>` : `<span class="rw-label">No best yet</span>`);
-    if (ctx.stage.closed && ctx.stage.discipline !== 'testpad' && r.laps > 1) {
-      this.lapEl.style.display = '';
-      this.setText('lap', this.lapEl, `LAP ${Math.min(r.lap, r.laps)}/${r.laps}`);
-    } else this.lapEl.style.display = 'none';
+    const lapOn = ctx.stage.closed && ctx.stage.discipline !== 'testpad' && r.laps > 1;
+    if (lapOn !== this.lapShown) {
+      this.lapShown = lapOn;
+      this.lapEl.style.display = lapOn ? '' : 'none';
+    }
+    if (lapOn) this.setText('lap', this.lapEl, `LAP ${Math.min(r.lap, r.laps)}/${r.laps}`);
     if (r.splits.length > this.lastSplits && !Number.isFinite(r.splits[r.splits.length - 1])) {
       this.lastSplits = r.splits.length; // skipped by a debug teleport: no popup
     } else if (r.splits.length > this.lastSplits) {
@@ -366,7 +397,11 @@ export class Hud implements IHud {
     this.splitShowT -= dt;
     if (this.splitShowT <= 0 && this.splitEl.classList.contains('rw-on')) this.splitEl.classList.remove('rw-on');
     this.cpShowT -= dt;
-    this.cp.classList.toggle('rw-on', this.cpShowT > 0 && r.splits.length > 0 && r.phase !== 'finished');
+    const cpOn = this.cpShowT > 0 && r.splits.length > 0 && r.phase !== 'finished';
+    if (cpOn !== this.cpOn) {
+      this.cpOn = cpOn;
+      this.cp.classList.toggle('rw-on', cpOn);
+    }
 
     // ---- pacenotes
     this.updateNotes(ctx);
@@ -382,14 +417,26 @@ export class Hud implements IHud {
       this.buildTicks(rpmMax);
     }
     const frac = Math.max(0, Math.min(1, t.rpm / rpmMax));
-    this.rpmArc.setAttribute('stroke-dasharray', `${(frac * this.arcLen).toFixed(1)} ${this.arcLen.toFixed(1)}`);
-    this.rpmArc.setAttribute('stroke', t.rpm >= red ? '#ff4b3e' : '#ffb81c');
+    const dash = `${(frac * this.arcLen).toFixed(1)} ${this.arcLen.toFixed(1)}`;
+    if (dash !== this.rpmDashV) {
+      this.rpmDashV = dash;
+      this.rpmArc.setAttribute('stroke-dasharray', dash);
+    }
+    const stroke = t.rpm >= red ? '#ff4b3e' : '#ffb81c';
+    if (stroke !== this.rpmStrokeV) {
+      this.rpmStrokeV = stroke;
+      this.rpmArc.setAttribute('stroke', stroke);
+    }
     this.setText('speed', this.speedEl, String(Math.round(Math.abs(t.speedKmh))));
     const gear = t.gear === 0 ? 'R' : String(t.gear);
     this.setText('gear', this.gearEl, t.shifting ? '·' : gear);
     const gcls = `rw-gear${t.rpm >= red ? ' rw-limit' : t.rpm >= red - 600 && t.gear > 0 && t.gear < t.nGears ? ' rw-shift' : ''}`;
     if (this.gearEl.className !== gcls) this.gearEl.className = gcls;
-    this.boostFill.style.width = `${(Math.max(0, Math.min(1, t.boostFrac)) * 100).toFixed(0)}%`;
+    const boostV = `${(Math.max(0, Math.min(1, t.boostFrac)) * 100).toFixed(0)}%`;
+    if (boostV !== this.boostV) {
+      this.boostV = boostV;
+      this.boostFill.style.width = boostV;
+    }
     this.setText('rpm', this.rpmText, `${(Math.round(t.rpm / 50) * 50).toLocaleString('en-US')} RPM`);
 
     // ---- surface chip
@@ -504,7 +551,7 @@ export class Hud implements IHud {
       const fill = el('i');
       e.appendChild(fill);
       this.bar.insertBefore(e, this.marker);
-      this.segs.push({ el: e, fill, start: acc, len: sec.len });
+      this.segs.push({ el: e, fill, start: acc, len: sec.len, width: '' });
       acc += sec.len;
     }
     this.progressBox.style.display = this.segs.length ? '' : 'none';
@@ -517,9 +564,11 @@ export class Hud implements IHud {
 
   private updateNotes(ctx: Readonly<FrameContext>): void {
     const notes = uiSettings.pacenoteHud ? ctx.race.pacenotes : [];
-    const key = notes.map((n) => `${n.s}`).join('|');
-    if (key !== this.noteKey) {
-      this.noteKey = key;
+    let changed = this.noteKey === '\u0000' || notes.length !== this.noteS.length;
+    for (let i = 0; !changed && i < notes.length; i++) changed = !sameNumber(notes[i].s, this.noteS[i]);
+    if (changed) {
+      this.noteKey = '';
+      this.noteS = notes.map((n) => n.s);
       this.notesEl.innerHTML = '';
       this.noteCards = notes.map((n) => {
         const said = ` ${n.text.toLowerCase().replace(/[^a-z' ]+/g, ' ')} `;
@@ -536,7 +585,7 @@ export class Hud implements IHud {
           (n.severity > 0 ? `<div class="rw-sev">${n.severity}</div>` : '') +
           `<div class="rw-ntext"><b>${escapeHtml(n.text)}</b><div class="rw-tags">${tags}</div><span class="rw-dist"></span></div>`;
         this.notesEl.appendChild(card);
-        return { el: card, dist: card.querySelector('.rw-dist') as HTMLElement, note: n };
+        return { el: card, dist: card.querySelector('.rw-dist') as HTMLElement, note: n, passed: false };
       });
     }
     const s = ctx.race.s;
@@ -545,13 +594,24 @@ export class Hud implements IHud {
       if (ctx.stage.closed && d < -ctx.stage.length / 2) d += ctx.stage.length;
       const txt = d > 1 ? `${Math.round(d / 5) * 5} m` : 'now';
       if (c.dist.textContent !== txt) c.dist.textContent = txt;
-      c.el.classList.toggle('rw-passed', d < -15);
+      const passed = d < -15;
+      if (passed !== c.passed) {
+        c.passed = passed;
+        c.el.classList.toggle('rw-passed', passed);
+      }
     }
+  }
+
+  /** The wrap's hidden class, written only when it changes. */
+  private setHidden(hidden: boolean): void {
+    if (hidden === this.hiddenV) return;
+    this.hiddenV = hidden;
+    this.wrap.classList.toggle('rw-hidden', hidden);
   }
 
   setVisible(on: boolean): void {
     this.visible = on;
-    this.wrap.classList.toggle('rw-hidden', !on);
+    this.setHidden(!on);
   }
 
   dispose(): void {

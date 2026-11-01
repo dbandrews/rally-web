@@ -45,10 +45,34 @@ export function parseWav(buf: ArrayBuffer): PcmData {
     throw new Error(`unsupported WAV (format ${fmtTag}, ${bits} bit, ${channels} ch)`);
   }
   const frames = Math.floor(dataLen / (2 * channels));
+  return { rate, channels, frames, data: readPcm16(buf, dataOff, frames, channels) };
+}
+
+/** 1 / 32768 (a power of two: pcm * INV equals pcm / 32768 exactly). */
+const INV = 1 / 32768;
+/** Typed arrays read in the platform byte order; PCM16 WAV is little-endian. */
+const LITTLE_ENDIAN = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+
+/** De-interleave `frames` PCM16 LE frames at `off` into one Float32Array per channel (sample / 32768, exact). An Int16Array
+ *  view needs a 2-byte aligned offset (and a little-endian host); otherwise the bytes are copied (or read per sample). */
+export function readPcm16(buf: ArrayBuffer, off: number, frames: number, channels: number): Float32Array<ArrayBuffer>[] {
   const data: Float32Array<ArrayBuffer>[] = [];
   for (let c = 0; c < channels; c++) data.push(new Float32Array(new ArrayBuffer(frames * 4)));
-  for (let i = 0; i < frames; i++) {
-    for (let c = 0; c < channels; c++) data[c][i] = dv.getInt16(dataOff + (i * channels + c) * 2, true) / 32768;
+  const n = frames * channels;
+  if (!LITTLE_ENDIAN) {
+    const dv = new DataView(buf);
+    for (let i = 0; i < frames; i++) for (let c = 0; c < channels; c++) data[c][i] = dv.getInt16(off + (i * channels + c) * 2, true) / 32768;
+    return data;
   }
-  return { rate, channels, frames, data };
+  const pcm = off % 2 === 0 ? new Int16Array(buf, off, n) : new Int16Array(buf.slice(off, off + n * 2));
+  if (channels === 1) {
+    const d = data[0];
+    for (let i = 0; i < n; i++) d[i] = pcm[i] * INV;
+  } else {
+    for (let c = 0; c < channels; c++) {
+      const d = data[c];
+      for (let i = 0, j = c; i < frames; i++, j += channels) d[i] = pcm[j] * INV;
+    }
+  }
+  return data;
 }

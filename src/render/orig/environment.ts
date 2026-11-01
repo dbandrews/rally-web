@@ -602,6 +602,39 @@ export class OrigEnvironment implements OrigComponent {
     this.flareVisible = true;
   }
 
+  /** The scenes the pipeline renders besides the stage scene (flare quads, flare occlusion mask): GameRenderer.warmUp. */
+  get extraScenes(): THREE.Scene[] {
+    return this.flare && this.maskScene ? [this.flare.scene, this.maskScene] : [];
+  }
+
+  /**
+   * GameRenderer.warmUp: the flare passes of renderFlare() once into `target` (the flare elements are shown for it and
+   * restored), so the mask target, the programs and the geometry buffers exist before the sun first comes into view.
+   * Draws nothing visible (the elements are degenerate until laid out); renderer state is restored.
+   */
+  warmFlare(renderer: THREE.WebGLRenderer, target: THREE.WebGLRenderTarget): void {
+    const f = this.flare;
+    if (!f || !this.maskTarget || !this.maskMat || !this.maskScene) return;
+    const depth = this.maskMat.uniforms.tDepth.value;
+    const prev = renderer.getRenderTarget();
+    try {
+      this.maskMat.uniforms.tDepth.value = null;
+      renderer.setRenderTarget(this.maskTarget);
+      renderer.render(this.maskScene, this.orthoCam);
+      renderer.setRenderTarget(target);
+      const shown = f.elements.map((e) => e.mesh.visible);
+      for (const e of f.elements) e.mesh.visible = true;
+      try {
+        renderer.render(f.scene, this.orthoCam);
+      } finally {
+        f.elements.forEach((e, i) => (e.mesh.visible = shown[i]));
+      }
+    } finally {
+      this.maskMat.uniforms.tDepth.value = depth;
+      renderer.setRenderTarget(prev);
+    }
+  }
+
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
@@ -837,6 +870,49 @@ export class OrigFramePipeline {
     t.texture.colorSpace = THREE.NoColorSpace;
     this.target = t;
     return t;
+  }
+
+  /** The scenes besides the stage scene that a frame renders (gamma blit, flare quads, flare mask): GameRenderer.warmUp. */
+  get extraScenes(): THREE.Scene[] {
+    return [this.blitScene, ...(this.env?.extraScenes ?? [])];
+  }
+
+  /**
+   * GameRenderer.warmUp: the passes of render() once into `rt` (a small offscreen target) with the scene as it is now —
+   * sky pass, main pass, flare passes, gamma blit — so every program, geometry buffer and the flare mask target exist
+   * before the first real frame; and the full-size frame target is allocated. Draws nothing to the canvas and changes
+   * neither the camera nor the scene (the caller shows hidden objects for it). No environment: a plain render.
+   */
+  warm(scene: THREE.Scene, camera: THREE.PerspectiveCamera, rt: THREE.WebGLRenderTarget): void {
+    const r = this.renderer;
+    const env = this.env;
+    if (!env) {
+      r.render(scene, camera);
+      return;
+    }
+    const sky = this.skyCam;
+    sky.copy(camera, false);
+    sky.near = env.data.view.skyPassNear || SKY_PASS_NEAR;
+    sky.far = env.data.view.skyPassFar || SKY_PASS_FAR;
+    sky.layers.set(ORIG_SKY_LAYER);
+    sky.updateProjectionMatrix();
+    sky.updateMatrixWorld();
+    const prev = r.getRenderTarget();
+    const tColor = this.blitMat.uniforms.tColor.value;
+    try {
+      r.setRenderTarget(rt);
+      r.render(scene, sky);
+      r.render(scene, camera);
+      env.warmFlare(r, rt);
+      r.setRenderTarget(rt);
+      this.blitMat.uniforms.tColor.value = null;
+      r.render(this.blitScene, this.blitCam);
+    } finally {
+      this.blitMat.uniforms.tColor.value = tColor;
+      r.setRenderTarget(prev);
+    }
+    r.getDrawingBufferSize(this.size);
+    r.initRenderTarget(this.ensureTarget(Math.max(1, Math.floor(this.size.x)), Math.max(1, Math.floor(this.size.y))));
   }
 
   /** Render one frame of `scene` seen by `camera` (the main camera; its near / far are set here). */

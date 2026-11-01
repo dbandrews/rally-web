@@ -78,6 +78,7 @@ import { OrigEnvironment, OrigFramePipeline, applyOrigAtmosphere, applyProcedura
 import { setOrigBuiltinMode } from './orig/environmentFog';
 import { buildRoad } from './road';
 import { buildScenery, buildStageLabels, updateSceneryLod, type SceneryBatch } from './scenery';
+import { capped, yieldToBrowser } from './loadCap';
 import { SkyDome } from './sky';
 import { buildTerrain, updateTerrainLod, type TerrainChunk } from './terrain';
 import { Precipitation } from './weather';
@@ -96,11 +97,24 @@ interface QualityPreset {
   lod: number;
 }
 
-/** Adaptive quality: step down when the smoothed frame rate stays below this for AUTO_SLOW_S seconds. */
+/** Adaptive quality: step down when the smoothed frame rate stays below this for AUTO_SLOW_S seconds. The step is
+ *  only DECIDED while racing; it is applied at a safe point (applyPendingQuality: countdown, pause / menu, results,
+ *  restart, stage load), never while the race is running. */
 const AUTO_MIN_FPS = 50;
 const AUTO_SLOW_S = 2.5;
 /** No adaptive decisions for this long after a stage load / quality change (shader + upload hitches). */
 const AUTO_WARMUP_S = 3;
+/** Frames longer than this are stalls (GC, a load, a tab switch), not the GPU speed: left out of the average, unless this
+ *  many in a row (a device that really renders at < 20 fps), which then count as 50 ms frames. */
+const AUTO_STALL_DT = 0.05;
+const AUTO_STALL_RUN = 20;
+/** The original effects (data + textures, per-car drop shadows) are part of the load, but a stalled connection must not
+ *  hold the start: the procedural effects run until / unless they arrive. */
+const EFFECTS_LOAD_CAP_MS = 8000;
+/** warmUp: the longest wait for the parallel shader compile (the hidden draw then links whatever is left). */
+const WARM_COMPILE_CAP_MS = 10000;
+/** warmUp: main-thread slice between yields while uploading textures. */
+const WARM_SLICE_MS = 12;
 
 const QUALITY: Record<RenderQuality, QualityPreset> = {
   high: { shadows: true, shadowMap: 2048, shadowBox: 60, pixelRatio: 1.5, particles: 1, lod: 1 },
@@ -127,6 +141,8 @@ interface CarEntry {
   /** Projected track lightmap under the original car (OriginalStageView.carLightmapAt): last patch + texture. */
   lmPatch: number;
   lmTex: THREE.Texture | null;
+  /** The renderer frame this car was last given a state in (a ghost without one is hidden). */
+  seen: number;
 }
 
 const isNight = (env: EnvironmentPreset) => env.timeOfDay < 6.5 || env.timeOfDay > 19.5 || env.sunDir.y < 0.05;
@@ -145,6 +161,28 @@ export function isSoftwareGL(): boolean {
   } catch {
     return false;
   }
+}
+
+/** Every texture the materials of `root` reference: material maps and ShaderMaterial uniform values (single or arrays). */
+function collectTextures(root: THREE.Object3D, out: Set<THREE.Texture>): void {
+  const add = (v: unknown) => {
+    const t = v as THREE.Texture | null | undefined;
+    if (t?.isTexture && !t.isRenderTargetTexture && !(t as THREE.DepthTexture).isDepthTexture) out.add(t);
+  };
+  root.traverse((o) => {
+    const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    if (!m) return;
+    for (const mat of Array.isArray(m) ? m : [m]) {
+      for (const k in mat) add((mat as unknown as Record<string, unknown>)[k]);
+      const u = (mat as THREE.ShaderMaterial).uniforms as Record<string, { value: unknown }> | undefined;
+      if (!u) continue;
+      for (const k in u) {
+        const v = u[k]?.value;
+        if (Array.isArray(v)) v.forEach(add);
+        else add(v);
+      }
+    }
+  });
 }
 
 function urlParam(name: string): string | null {
@@ -201,8 +239,26 @@ export class GameRenderer implements IGameRenderer {
   private fps = 60;
   private cpuMs = 0;
   private lastPlayerStep = -1;
-  private readonly onResize = () => this.resize();
+  private readonly onResize = () => this.queueResize();
   private readonly resizeObs: ResizeObserver | null = null;
+  /** A window resize / container resize is waiting for the next frame (one resize pass per frame, resize()). */
+  private resizePending = false;
+  private sizeW = -1;
+  private sizeH = -1;
+  private sizePr = -1;
+  private disposed = false;
+  /** Shadow state the materials were last compiled for (applyQuality recompiles only when it changes). */
+  private shadowKey = '';
+  /** An adaptive step-down waiting for a safe point (applyPendingQuality). */
+  private pendingQuality: RenderQuality | null = null;
+  private pendingFps = 0;
+  private stallRun = 0;
+  /** warmUp(): runs one at a time; the small offscreen target its hidden draws go to; its last cost (ms). */
+  private warmJob: Promise<void> = Promise.resolve();
+  private warmRt: THREE.WebGLRenderTarget | null = null;
+  private warmMs = 0;
+  /** An effects load hit its cap (a stalled connection): warmUp does not wait for it a second time. */
+  private effectsStalled = false;
   private readonly tmpV = new THREE.Vector3();
   private readonly tmpV2 = new THREE.Vector3();
   private readonly tmpQ = new THREE.Quaternion();
@@ -272,7 +328,7 @@ export class GameRenderer implements IGameRenderer {
     (window as unknown as { __rallyRenderer?: GameRenderer }).__rallyRenderer = this;
     window.addEventListener('resize', this.onResize);
     if (typeof ResizeObserver !== 'undefined') {
-      this.resizeObs = new ResizeObserver(() => this.resize());
+      this.resizeObs = new ResizeObserver(() => this.queueResize());
       this.resizeObs.observe(container);
     }
     this.resize();
@@ -284,6 +340,7 @@ export class GameRenderer implements IGameRenderer {
   setQuality(q: RenderQuality, keepAuto = false): void {
     this.quality = q;
     if (!keepAuto) this.autoQuality = false;
+    this.pendingQuality = null;
     this.warmup = AUTO_WARMUP_S;
     this.slowTime = 0;
     this.applyQuality();
@@ -296,6 +353,7 @@ export class GameRenderer implements IGameRenderer {
   /** Adaptive quality on/off (default on for hardware GL without ?quality=). */
   setAutoQuality(on: boolean): void {
     this.autoQuality = on;
+    if (!on) this.pendingQuality = null;
     this.warmup = AUTO_WARMUP_S;
     this.slowTime = 0;
   }
@@ -304,10 +362,14 @@ export class GameRenderer implements IGameRenderer {
     return this.autoQuality;
   }
 
+  /** The drawing-buffer pixel ratio of the current preset (or ?pr=), at the display's current devicePixelRatio. */
+  private targetPixelRatio(): number {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    return this.pixelRatioOverride ?? Math.min(dpr, QUALITY[this.quality].pixelRatio);
+  }
+
   private applyQuality(): void {
     const p = QUALITY[this.quality];
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
-    this.renderer.setPixelRatio(this.pixelRatioOverride ?? Math.min(dpr, p.pixelRatio));
     this.renderer.shadowMap.enabled = p.shadows;
     this.sun.castShadow = this.sunShadowWanted();
     if (this.sun.shadow.mapSize.x !== p.shadowMap) {
@@ -325,13 +387,42 @@ export class GameRenderer implements IGameRenderer {
     cam.updateProjectionMatrix();
     this.particles.density = p.particles;
     this.particles.orig.density = p.particles; // the original effects' particle cap (1 on 'high' = the original's)
-    // materials need a recompile when shadows toggle
-    this.scene.traverse((o) => {
-      const m = (o as THREE.Mesh).material;
-      if (!m) return;
-      for (const mm of Array.isArray(m) ? m : [m]) mm.needsUpdate = true;
-    });
-    this.resize();
+    // materials need a recompile only when the shadow state toggles (pixel ratio / LOD / shadow map size do not touch a program)
+    const key = `${p.shadows ? 1 : 0}${this.sun.castShadow ? 1 : 0}`;
+    if (key !== this.shadowKey) {
+      this.shadowKey = key;
+      this.scene.traverse((o) => {
+        const m = (o as THREE.Mesh).material;
+        if (!m) return;
+        for (const mm of Array.isArray(m) ? m : [m]) mm.needsUpdate = true;
+      });
+    }
+    this.resize(); // the pixel ratio is applied there, when it changed
+  }
+
+  /** An adaptive step-down is waiting for a safe point (applyPendingQuality). */
+  get hasPendingQuality(): boolean {
+    return this.pendingQuality !== null;
+  }
+
+  /**
+   * Apply the adaptive step-down decided while racing, at a point where a hitch is harmless (main.ts: countdown, pause /
+   * menu, results, restart; warmUp does it for a stage load), then warm up for the new pipeline state (shadow programs,
+   * frame target). No-op without a pending step. Never rejects.
+   */
+  async applyPendingQuality(): Promise<boolean> {
+    if (!this.stepPendingQuality()) return false;
+    await this.warmUp();
+    return true;
+  }
+
+  private stepPendingQuality(): boolean {
+    const q = this.pendingQuality;
+    this.pendingQuality = null;
+    if (!q || q === this.quality || !this.autoQuality) return false;
+    this.setQuality(q, true);
+    console.info(`[render] ${this.pendingFps} fps → quality ${q}`);
+    return true;
   }
 
   // ----------------------------------------------------------------------------------------- stage
@@ -423,8 +514,9 @@ export class GameRenderer implements IGameRenderer {
     this.particles.setEnvironment(env);
     this.particles.clear();
     this.skids.clear();
-    // original car effects of this stage (effects builder; procedural effects until / unless they load)
-    this.particles.setStage(stage.id, view !== null, this.textureStore);
+    // original car effects of this stage (effects builder; procedural effects until / unless they load): awaited below
+    this.effectsStalled = false;
+    const effectsLoad = this.particles.setStage(stage.id, view !== null, this.textureStore);
     // an original view: the original fog / lights for the procedural content in it (gap 4, orig/environment*.ts);
     // its weather is the original's (environment component), never the procedural precipitation
     setOrigBuiltinMode(view !== null);
@@ -456,12 +548,9 @@ export class GameRenderer implements IGameRenderer {
     this.lastPlayerStep = -1;
     this.warmup = AUTO_WARMUP_S;
     this.slowTime = 0;
-    // compile shaders now rather than on the first driving frame
-    try {
-      this.renderer.compile(this.scene, cam);
-    } catch {
-      /* optional */
-    }
+    // the effects (data, sprite / skid textures) are part of the load, not something that lands in the countdown or the
+    // race; the programs, textures and buffers are warmed by warmUp() once the cars exist
+    if (!(await capped(effectsLoad, EFFECTS_LOAD_CAP_MS))) this.effectsStalled = true;
   }
 
   /**
@@ -535,12 +624,18 @@ export class GameRenderer implements IGameRenderer {
     const player = opts.player ?? ![...this.cars.values()].some((c) => c.player);
     if (player) for (const c of this.cars.values()) c.player = false;
     const effects = ghost ? null : new CarEffects(this.particles, this.skids, opts.origCar);
-    const entry: CarEntry = { visual, effects, ghost, player, ai: !!opts.ai, carIndex: opts.carIndex ?? 0, lodLevel: null, origScope: null, lmPatch: -1, lmTex: null };
+    const entry: CarEntry = { visual, effects, ghost, player, ai: !!opts.ai, carIndex: opts.carIndex ?? 0, lodLevel: null, origScope: null, lmPatch: -1, lmTex: null, seen: -1 };
     this.cars.set(id, entry);
     if (player) this.rig.invalidate();
-    if (opts.origCar) return this.loadOrigCar(id, entry, opts.origCar);
+    // the car's own effects data + drop shadow are part of the car: it is not ready before they are (capped)
+    const fx = effects
+      ? capped(effects.whenReady(), EFFECTS_LOAD_CAP_MS).then((ok) => {
+          if (!ok) this.effectsStalled = true;
+        })
+      : Promise.resolve();
+    if (opts.origCar) return Promise.all([this.loadOrigCar(id, entry, opts.origCar), fx]).then(() => undefined);
     if (player) this.applyCarCamera(null, null); // an archetype car: the generic §5.3 positions
-    return Promise.resolve();
+    return fx;
   }
 
   /** docs/ASSETS.md §10 gap 2: the original car replaces the procedural one once loaded (cars builder). The
@@ -624,10 +719,135 @@ export class GameRenderer implements IGameRenderer {
     this.cars.delete(id);
   }
 
+  // ----------------------------------------------------------------------------------------- warm-up
+
+  /**
+   * GPU warm-up behind the loading screen (main.ts awaits it after the stage, every car and the effects exist, before the
+   * race can start), so nothing is compiled, uploaded or allocated for the first time while driving:
+   *   1. the effects / drop shadows requested so far have landed (capped);
+   *   2. every texture any material references, in the stage scene and in the extra scenes of the original frame
+   *      (gamma blit, flare quads, flare mask), is uploaded (initTexture, in slices);
+   *   3. every program is compiled for the state the real pass uses (the original frame renders into a render target:
+   *      the same kind of target is bound), invisible objects included (car LODs / wheel sets, ghost variant, flare
+   *      sprites, particle batches, flare meshes), in parallel where KHR_parallel_shader_compile exists;
+   *   4. one hidden draw of the whole scene (everything shown, nothing culled, the original frame's passes) into a tiny
+   *      offscreen target creates the geometry buffers / VAOs, the shadow map and the frame targets; the visibility
+   *      and culling flags are restored before anything else can see them.
+   * The next rendered frame is unchanged by it. An adaptive step-down that was waiting (applyPendingQuality) is applied
+   * first. Procedural stages (no original view) only get steps 1-3: their programs use the screen's tone mapping, which no
+   * offscreen draw can reproduce. Never rejects; `debugInfo().warmUpMs` is its last cost.
+   */
+  warmUp(): Promise<void> {
+    const job = this.warmJob
+      .then(() => this.runWarmUp())
+      .catch((e) => warnOnce('render-warmup', `[render] GPU warm-up failed: ${(e as Error)?.message ?? e}`));
+    this.warmJob = job;
+    return job;
+  }
+
+  private async runWarmUp(): Promise<void> {
+    if (!this.stage || this.disposed) return;
+    const t0 = performance.now();
+    const seq = this.loadSeq;
+    this.stepPendingQuality();
+    if (!this.effectsStalled) await capped(this.particles.settled(), EFFECTS_LOAD_CAP_MS);
+    if (seq !== this.loadSeq) return;
+    await this.warmTextures(seq);
+    if (seq !== this.loadSeq) return;
+    await this.warmPrograms();
+    if (seq !== this.loadSeq) return;
+    this.warmDraw();
+    this.warmMs = performance.now() - t0;
+  }
+
+  /** The scenes a frame renders: the stage scene, and with the original frame its extra scenes (blit, flares, mask). */
+  private frameScenes(): THREE.Object3D[] {
+    return this.origPipeline?.active ? [this.scene, ...this.origPipeline.extraScenes] : [this.scene];
+  }
+
+  private warmTarget(): THREE.WebGLRenderTarget {
+    return (this.warmRt ??= new THREE.WebGLRenderTarget(16, 16, { depthBuffer: true, stencilBuffer: false }));
+  }
+
+  private async warmTextures(seq: number): Promise<void> {
+    const textures = new Set<THREE.Texture>();
+    for (const sc of this.frameScenes()) collectTextures(sc, textures);
+    let sliceStart = performance.now();
+    for (const t of textures) {
+      // never uploaded textures (version 0) and ones without data have nothing to upload yet
+      if (!t.version || (!t.image && !(t as THREE.CompressedTexture).mipmaps?.length)) continue;
+      try {
+        this.renderer.initTexture(t);
+      } catch {
+        /* uploaded on first use as before */
+      }
+      if (performance.now() - sliceStart > WARM_SLICE_MS) {
+        await yieldToBrowser();
+        if (seq !== this.loadSeq || this.disposed) return;
+        sliceStart = performance.now();
+      }
+    }
+  }
+
+  private async warmPrograms(): Promise<void> {
+    const r = this.renderer;
+    const cam = this.rig.camera;
+    const prev = r.getRenderTarget();
+    const jobs: Promise<unknown>[] = [];
+    try {
+      // an original view renders into a render target (the frame pipeline), a procedural stage to the screen
+      r.setRenderTarget(this.origView ? this.warmTarget() : null);
+      for (const sc of this.frameScenes()) {
+        try {
+          // without KHR_parallel_shader_compile, compileAsync only polls a blocking compile (and three warns): compile directly
+          const parallel = typeof r.compileAsync === 'function' && r.extensions.has('KHR_parallel_shader_compile');
+          jobs.push(parallel ? r.compileAsync(sc, cam).catch(() => undefined) : Promise.resolve(r.compile(sc, cam)));
+        } catch {
+          /* compiled on first use as before */
+        }
+      }
+    } finally {
+      r.setRenderTarget(prev);
+    }
+    await capped(Promise.all(jobs), WARM_COMPILE_CAP_MS);
+  }
+
+  private warmDraw(): void {
+    if (!this.origView) return;
+    const r = this.renderer;
+    const rt = this.warmTarget();
+    const cam = this.rig.camera;
+    const shown: { o: THREE.Object3D; visible: boolean; culled: boolean }[] = [];
+    this.scene.traverse((o) => {
+      if ((o as THREE.Light).isLight) return; // the light set decides the programs: leave it as the frame has it
+      shown.push({ o, visible: o.visible, culled: o.frustumCulled });
+      o.visible = true;
+      o.frustumCulled = false;
+    });
+    const prev = r.getRenderTarget();
+    try {
+      if (this.origPipeline?.active) this.origPipeline.warm(this.scene, cam, rt);
+      else {
+        r.setRenderTarget(rt);
+        r.render(this.scene, cam);
+      }
+      r.getContext().finish(); // the work lands now, not in the first frames
+    } catch (e) {
+      warnOnce('render-warmdraw', `[render] GPU warm-up draw failed: ${(e as Error)?.message ?? e}`);
+    } finally {
+      for (const x of shown) {
+        x.o.visible = x.visible;
+        x.o.frustumCulled = x.culled;
+      }
+      r.setRenderTarget(prev);
+    }
+  }
+
   // ----------------------------------------------------------------------------------------- frame
 
   update(frameDt: number, _alpha: number, cars: readonly CarRenderState[]): void {
     const t0 = typeof performance !== 'undefined' ? performance.now() : 0;
+    if (this.resizePending) this.resize();
     this.frame++;
     if (frameDt > 0) this.fps += (1 / frameDt - this.fps) * 0.05;
     let target: CarRenderState | null = null;
@@ -635,6 +855,7 @@ export class GameRenderer implements IGameRenderer {
     for (const c of cars) {
       const e = this.cars.get(c.id);
       if (!e) continue;
+      e.seen = this.frame;
       e.visual.update(c, frameDt);
       if (!e.ghost) this.updateCarLightmap(e, c);
       e.effects?.update(c.telemetry, c);
@@ -654,7 +875,8 @@ export class GameRenderer implements IGameRenderer {
       applyThreeQuat(this.tmpQ, target.quat);
       this.rig.update(frameDt, { pos: this.tmpV, quat: this.tmpQ, tel: target.telemetry, justReset: target.justReset });
       pe?.visual.setVisible(!this.rig.hideCar);
-      for (const e of this.cars.values()) if (e !== pe) e.visual.setVisible(true);
+      // a ghost car added ahead of its first state (main.ts loads it with the race) stays hidden until it has one
+      for (const e of this.cars.values()) if (e !== pe) e.visual.setVisible(!e.ghost || e.seen === this.frame);
       const v = target.telemetry.vel;
       this.carVel.set(v?.x ?? 0, v?.y ?? 0, v?.z ?? 0);
       this.followShadow(this.tmpV, this.tmpQ);
@@ -747,7 +969,13 @@ export class GameRenderer implements IGameRenderer {
   }
 
   private adaptQuality(frameDt: number): void {
-    // ~0.5 s EMA of the real frame time; single hitches (GC, tab switch: frameDt is clamped to 0.2) barely move it
+    if (this.pendingQuality) return; // decided; waits for a safe point
+    if (frameDt > AUTO_STALL_DT) {
+      // a stall (GC, a load, a tab switch) says nothing about the GPU: out of the average, unless the device is slow throughout
+      if (++this.stallRun < AUTO_STALL_RUN) return;
+      frameDt = AUTO_STALL_DT;
+    } else this.stallRun = 0;
+    // ~0.5 s EMA of the real frame time; single hitches barely move it
     this.frameEma += (Math.min(frameDt, 0.1) - this.frameEma) * Math.min(1, frameDt * 2);
     if (this.warmup > 0) {
       this.warmup -= frameDt;
@@ -756,13 +984,27 @@ export class GameRenderer implements IGameRenderer {
     if (this.frameEma > 1 / AUTO_MIN_FPS) this.slowTime += frameDt;
     else this.slowTime = Math.max(0, this.slowTime - frameDt);
     if (this.slowTime > AUTO_SLOW_S && this.quality !== 'low') {
-      const fps = Math.round(1 / this.frameEma);
-      this.setQuality(this.quality === 'high' ? 'medium' : 'low', true);
-      console.info(`[render] ${fps} fps → quality ${this.quality}`);
+      // never switch the pipeline (pixel ratio, shadow programs, targets) under a running race: applyPendingQuality
+      this.pendingFps = Math.round(1 / this.frameEma);
+      this.pendingQuality = this.quality === 'high' ? 'medium' : 'low';
+      this.slowTime = 0;
     }
   }
 
   // ----------------------------------------------------------------------------------------- cameras
+
+  /** Read-only three.js resource counters for profiling (tools/frame-profile.mjs via the test API, window.__rally.getRenderInfo). */
+  renderInfo(names = false): { programs: number; textures: number; geometries: number; calls: number; triangles: number; programNames?: string[] } {
+    const i = this.renderer.info;
+    return {
+      ...(names ? { programNames: (i.programs ?? []).map((p) => `${p.name}#${p.id}`) } : {}),
+      programs: i.programs?.length ?? 0,
+      textures: i.memory.textures,
+      geometries: i.memory.geometries,
+      calls: i.render.calls,
+      triangles: i.render.triangles,
+    };
+  }
 
   /** The render camera (read-only; e.g. the audio listener, CamListener.con). */
   get camera(): THREE.PerspectiveCamera {
@@ -794,9 +1036,26 @@ export class GameRenderer implements IGameRenderer {
 
   // ----------------------------------------------------------------------------------------- misc
 
+  /** Window resize / ResizeObserver: one pass per frame (update() or the next animation frame), however many fire. */
+  private queueResize(): void {
+    if (this.resizePending || this.disposed) return;
+    this.resizePending = true;
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => this.resizePending && !this.disposed && this.resize());
+    else this.resize();
+  }
+
+  /** Re-read the container size and the display's pixel ratio; nothing happens (no drawing-buffer reallocation) when
+   *  neither changed. */
   resize(): void {
+    this.resizePending = false;
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
+    const pr = this.targetPixelRatio();
+    if (w === this.sizeW && h === this.sizeH && pr === this.sizePr) return;
+    if (pr !== this.sizePr) this.renderer.setPixelRatio(pr);
+    this.sizeW = w;
+    this.sizeH = h;
+    this.sizePr = pr;
     this.renderer.setSize(w, h, false);
     const cam = this.rig.camera;
     cam.aspect = w / Math.max(1, h);
@@ -828,6 +1087,8 @@ export class GameRenderer implements IGameRenderer {
     return {
       quality: this.quality,
       autoQuality: this.autoQuality,
+      pendingQuality: this.pendingQuality,
+      warmUpMs: +this.warmMs.toFixed(1),
       pixelRatio: this.renderer.getPixelRatio(),
       cpuMs: +this.cpuMs.toFixed(2),
       particles: this.particles.alive,
@@ -872,6 +1133,9 @@ export class GameRenderer implements IGameRenderer {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.warmRt?.dispose();
+    this.warmRt = null;
     window.removeEventListener('resize', this.onResize);
     this.resizeObs?.disconnect();
     for (const id of [...this.cars.keys()]) this.removeCar(id);

@@ -48,6 +48,8 @@ export interface TestApiHost {
   setCamera(mode: number | CameraMode): void;
   startRaceNow(): void;
   frameStats(): FrameStats;
+  /** Read-only three.js resource counters for profiling (tools/frame-profile.mjs). */
+  renderInfo(names?: boolean): { programs: number; textures: number; geometries: number; calls: number; triangles: number; programNames?: string[] };
   probe(): ProbeInfo;
   carInfo(): CarInfo;
   /** Race events since the last call (drained). */
@@ -110,6 +112,7 @@ export function installTestApi(host: TestApiHost): RallyTestApi {
       host.startRaceNow();
     },
     getFrameStats: () => clone(host.frameStats()),
+    getRenderInfo: (names) => host.renderInfo(names),
     probe: () => clone(host.probe()),
     getCarInfo: () => clone(host.carInfo()),
     getRaceEvents: () => clone(host.drainApiEvents()),

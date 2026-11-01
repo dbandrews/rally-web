@@ -1488,6 +1488,9 @@ export interface IGameRenderer {
   removeCar(id: string): void;
   /** PHASE 2: force a car's model LOD level (othercarlodlevel / playercarlodlevel, ai.md §9); null = renderer's choice. */
   setCarLod?(id: string, level: number | null): void;
+  /** GPU warm-up behind the loading screen: textures uploaded, programs compiled, buffers created for everything the race
+   *  draws, so the first frames do none of it. Never rejects; main.ts awaits it after the stage, cars and effects exist. */
+  warmUp?(): Promise<void>;
   /** Render one frame. `alpha` = physics interpolation fraction (cars are already interpolated). */
   update(frameDt: number, alpha: number, cars: readonly CarRenderState[]): void;
   setCameraMode(mode: CameraMode): void;
@@ -1868,6 +1871,8 @@ export interface RallyTestApi {
   /** Skip menu and countdown: race running now. */
   startRace(): void;
   getFrameStats(): FrameStats;
+  /** Read-only three.js resource counters (programs / textures / geometries / draw calls) for profiling; used by tools/frame-profile.mjs. */
+  getRenderInfo(names?: boolean): { programs: number; textures: number; geometries: number; calls: number; triangles: number; programNames?: string[] };
   /** Car vs ground / road (clearance, heading error, upside down) for headless health checks. */
   probe(): ProbeInfo;
   /** The player car: archetype, original car and the hull in use (CarInfo). */

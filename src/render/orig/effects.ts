@@ -137,6 +137,72 @@ void main() {
   outColor = c;
 }`;
 
+/**
+ * Stable sort of ord[0..n) by dep[0..n) DESCENDING (equal depths keep their order): the back-to-front order of the
+ * original insertion sort, in O(n) for the larger batches (an LSD radix sort on the float32 bits: depths are positive,
+ * so the IEEE bit patterns order like the values; the complemented key sorts descending). `dep` is clobbered, only `ord`
+ * is the result. Scratch is shared (the batches sort one after the other).
+ */
+export class DepthSorter {
+  private keyA = new Uint32Array(0);
+  private keyB = new Uint32Array(0);
+  private ordB = new Uint32Array(0);
+  private readonly hist = new Uint32Array(2048);
+
+  sort(dep: Float32Array, ord: Uint32Array, n: number): void {
+    if (n < 2) return;
+    if (n <= DepthSorter.INSERTION_MAX) {
+      for (let a = 1; a < n; a++) {
+        const kd = dep[a], ko = ord[a];
+        let b = a - 1;
+        while (b >= 0 && dep[b] < kd) {
+          dep[b + 1] = dep[b];
+          ord[b + 1] = ord[b];
+          b--;
+        }
+        dep[b + 1] = kd;
+        ord[b + 1] = ko;
+      }
+      return;
+    }
+    if (this.keyA.length < n) {
+      const cap = Math.max(n, this.keyA.length * 2);
+      this.keyA = new Uint32Array(cap);
+      this.keyB = new Uint32Array(cap);
+      this.ordB = new Uint32Array(cap);
+    }
+    const bits = new Uint32Array(dep.buffer, dep.byteOffset, n);
+    let ka = this.keyA, kb = this.keyB;
+    let oa: Uint32Array = ord, ob: Uint32Array = this.ordB;
+    for (let i = 0; i < n; i++) ka[i] = ~bits[i];
+    const hist = this.hist;
+    for (let shift = 0; shift < 33; shift += 11) {
+      hist.fill(0);
+      for (let i = 0; i < n; i++) hist[(ka[i] >>> shift) & 2047]++;
+      let sum = 0;
+      for (let b = 0; b < 2048; b++) {
+        const c = hist[b];
+        hist[b] = sum;
+        sum += c;
+      }
+      for (let i = 0; i < n; i++) {
+        const k = ka[i];
+        const j = hist[(k >>> shift) & 2047]++;
+        kb[j] = k;
+        ob[j] = oa[i];
+      }
+      [ka, kb] = [kb, ka];
+      [oa, ob] = [ob, oa];
+    }
+    // three passes: the sorted order sits in the scratch array
+    for (let i = 0; i < n; i++) ord[i] = oa[i];
+  }
+
+  static readonly INSERTION_MAX = 128;
+}
+
+const depthSorter = new DepthSorter();
+
 /** Per-template particle pool + one instanced draw call. */
 class SpriteBatch {
   readonly def: SpriteDef;
@@ -179,7 +245,8 @@ class SpriteBatch {
   readonly frames: number;
   meanDepth = 0;
 
-  constructor(def: SpriteDef, tex: THREE.Texture | null, frames: number) {
+  /** `capacity`: the particles the batch can hold before it has to grow (the stage's global cap: no growth mid-race). */
+  constructor(def: SpriteDef, tex: THREE.Texture | null, frames: number, capacity = 64) {
     this.def = def;
     this.frames = Math.max(1, frames);
     this.tables = {
@@ -196,7 +263,7 @@ class SpriteBatch {
     g.setIndex([0, 1, 2, 0, 2, 3]);
     g.instanceCount = 0;
     this.geo = g;
-    this.grow(64);
+    this.grow(Math.max(64, capacity));
     const volume = tex instanceof THREE.Data3DTexture;
     this.mat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
@@ -382,19 +449,9 @@ class SpriteBatch {
       n++;
     }
     this.meanDepth = n ? depthSum / n : 1e9;
-    // insertion sort by depth (descending) – particle counts per batch are small (≤ a few hundred)
-    const ord = this.order, dep = this.depth;
-    for (let a2 = 1; a2 < n; a2++) {
-      const kd = dep[a2], ko = ord[a2];
-      let b = a2 - 1;
-      while (b >= 0 && dep[b] < kd) {
-        dep[b + 1] = dep[b];
-        ord[b + 1] = ord[b];
-        b--;
-      }
-      dep[b + 1] = kd;
-      ord[b + 1] = ko;
-    }
+    // back to front: stable sort by depth, descending (DepthSorter)
+    depthSorter.sort(this.depth, this.order, n);
+    const ord = this.order;
     const P = this.aPos.array as Float32Array, WH = this.aWH.array as Float32Array, SC = this.aSC.array as Float32Array;
     const C = this.aCol.array as Float32Array, F = this.aFrame.array as Float32Array;
     for (let q = 0; q < n; q++) {
@@ -740,8 +797,23 @@ export class OrigEffectsSystem {
     return this.stage !== null;
   }
 
-  /** Load the stage's original effects (null / failure → procedural effects, one warning). */
-  async setStage(stageId: string | null, original: boolean, store: TextureStore | null): Promise<void> {
+  /** The latest setStage (the effects of the stage settle with it); `settled()` waits for it. */
+  private loading: Promise<void> = Promise.resolve();
+
+  /** Load the stage's original effects (null / failure → procedural effects, one warning). The promise settles once the
+   *  effects data, its textures, the batches and every car's emitters / drop shadow (and their textures) are in place. */
+  setStage(stageId: string | null, original: boolean, store: TextureStore | null): Promise<void> {
+    return (this.loading = this.loadStage(stageId, original, store));
+  }
+
+  /** Everything that was requested so far has landed: the stage effects and the cars' own effects data + drop shadows.
+   *  Never rejects. */
+  async settled(): Promise<void> {
+    await this.loading.catch(() => undefined);
+    await Promise.all([...this.cars].map((c) => c.whenReady()));
+  }
+
+  private async loadStage(stageId: string | null, original: boolean, store: TextureStore | null): Promise<void> {
     const seq = ++this.seq;
     this.unload();
     if (!stageId || !original || !store) return;
@@ -779,7 +851,8 @@ export class OrigEffectsSystem {
       for (const [name, t] of Object.entries(st.json.templates)) {
         if (t.type !== 'SpriteParticle') continue;
         const ti = info[t.texture.toLowerCase()];
-        const b = new SpriteBatch(t, textures.get(t.texture.toLowerCase()) ?? null, ti?.volume ? ti.depth ?? 1 : 1);
+        // preallocated to the most this template can ever hold (global cap x its percentage at density 1): no growth mid-race
+        const b = new SpriteBatch(t, textures.get(t.texture.toLowerCase()) ?? null, ti?.volume ? ti.depth ?? 1 : 1, Math.ceil(s.maxParticles * t.maxParticlesPercentage));
         this.batches.set(name.toLowerCase(), b);
         this.root.add(b.mesh);
       }
@@ -788,6 +861,7 @@ export class OrigEffectsSystem {
       this.skids.mesh.visible = s.drawSkidMarks;
       this.root.add(this.skids.mesh);
       for (const c of this.cars) c.rebuild();
+      await Promise.all([...this.cars].map((c) => c.whenReady())); // their drop-shadow textures
     } catch (e) {
       if (this.scope === scope) this.scope = null;
       scope.dispose();
@@ -931,21 +1005,36 @@ export class OrigCarFx {
   private blowTimer = 0;
   private lastGear = 0;
   private disposed = false;
+  /** Loads in flight (the car's effects.json, the drop-shadow texture): whenReady() waits for them. */
+  private readonly inflight = new Set<Promise<unknown>>();
 
   constructor(sys: OrigEffectsSystem, origCar?: string | null) {
     this.sys = sys;
     this.origCar = origCar ?? null;
     sys.register(this);
     if (this.origCar) {
-      loadCarEffects(this.origCar)
-        .then((d) => {
-          if (this.disposed) return;
-          this.carDef = d;
-          this.rebuild();
-        })
-        .catch((e) => warnOnce(`fx-car:${this.origCar}`, `[render] original car effects of ${this.origCar} failed: ${(e as Error)?.message ?? e}`));
+      this.track(
+        loadCarEffects(this.origCar)
+          .then((d) => {
+            if (this.disposed) return;
+            this.carDef = d;
+            this.rebuild();
+          })
+          .catch((e) => warnOnce(`fx-car:${this.origCar}`, `[render] original car effects of ${this.origCar} failed: ${(e as Error)?.message ?? e}`)),
+      );
     }
     this.rebuild();
+  }
+
+  private track(p: Promise<unknown>): void {
+    this.inflight.add(p);
+    const done = () => void this.inflight.delete(p);
+    p.then(done, done);
+  }
+
+  /** The car's effects data and drop shadow (with its texture) have loaded, or failed (the fallback stays). Never rejects. */
+  async whenReady(): Promise<void> {
+    while (this.inflight.size) await Promise.allSettled([...this.inflight]); // a settled load may start the next (rebuild)
   }
 
   /** (Re)create the emitters for the current stage. */
@@ -1009,12 +1098,14 @@ export class OrigCarFx {
     mesh.name = 'origfx:dropshadow';
     this.shadow = mesh;
     this.sys.root.add(mesh);
-    scope
-      .get(ds.tex, { wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping })
-      .then((t) => {
-        if (this.shadow === mesh) mat.uniforms.uTex.value = t;
-      })
-      .catch(() => undefined);
+    this.track(
+      scope
+        .get(ds.tex, { wrapS: THREE.ClampToEdgeWrapping, wrapT: THREE.ClampToEdgeWrapping })
+        .then((t) => {
+          if (this.shadow === mesh) mat.uniforms.uTex.value = t;
+        })
+        .catch(() => undefined),
+    );
   }
 
   /** Drop the emitters / shadow of the previous stage (particles already spawned stay with the batches). */

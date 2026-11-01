@@ -465,6 +465,12 @@ export class RaceController implements IRaceController {
     return this.gs.deleteUser(id);
   }
 
+  /** The car the ghost of this race is drawn with (its file's own for a team / saved ghost, else the player's), once the
+   *  ghost is attached; null without one. Lets main.ts put the ghost's visual in with the race instead of at GO. */
+  ghostLook(): { origCar?: string; archetype: ArchetypeId } | null {
+    return this.gs.playbackLook();
+  }
+
   /** A ghost (best run, team or saved) is loaded for this race. */
   get hasGhost(): boolean {
     return this.gs.hasPlayback;

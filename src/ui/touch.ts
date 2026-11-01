@@ -290,6 +290,12 @@ export class TouchControls implements TouchSource {
   private readonly ptrs = new Map<number, Ptr>();
   private rects: { pedal: Pedal; r: DOMRect }[] = [];
   private shown = false;
+  // last values written to the DOM every frame (written only when they change)
+  private uprightOn = false;
+  private tiltOn = false;
+  private manualOn = false;
+  private tiltLeft = '';
+  private tiltWidth = '';
   private readonly edges = { gearUp: false, gearDown: false, cameraNext: false, pause: false };
   /** Tilt offset -1..1 (smoothed) and the time of the last orientation event. */
   private tilt = 0;
@@ -417,7 +423,11 @@ export class TouchControls implements TouchSource {
     const upright = touchMode && phonePortrait();
     // racing a phone held upright: pause (the pause card waits; the banner asks to turn it, not over the menus at rest)
     if (upright && racing && !menuOpen && !ctx.paused) this.edges.pause = true;
-    document.body.classList.toggle('rw-upright', upright && racing);
+    const uprightOn = upright && racing;
+    if (uprightOn !== this.uprightOn) {
+      this.uprightOn = uprightOn;
+      document.body.classList.toggle('rw-upright', uprightOn);
+    }
     const show = touchMode && racing && !menuOpen && !upright;
     if (show !== this.shown) {
       this.shown = show;
@@ -435,12 +445,27 @@ export class TouchControls implements TouchSource {
         toast('Tilt steering unavailable here: steer with the touch pad');
       }
     } else this.tiltWait = 0;
-    this.el.classList.toggle('rw-tilt', live);
-    this.el.classList.toggle('rw-manual', ctx.telemetry.transmission === 'manual');
+    if (live !== this.tiltOn) {
+      this.tiltOn = live;
+      this.el.classList.toggle('rw-tilt', live);
+    }
+    const manual = ctx.telemetry.transmission === 'manual';
+    if (manual !== this.manualOn) {
+      this.manualOn = manual;
+      this.el.classList.toggle('rw-manual', manual);
+    }
     if (live) {
       const d = Math.max(-1, Math.min(1, this.tilt));
-      this.tiltFill.style.left = `${(50 + Math.min(0, d) * 50).toFixed(1)}%`;
-      this.tiltFill.style.width = `${(Math.abs(d) * 50).toFixed(1)}%`;
+      const left = `${(50 + Math.min(0, d) * 50).toFixed(1)}%`;
+      if (left !== this.tiltLeft) {
+        this.tiltLeft = left;
+        this.tiltFill.style.left = left;
+      }
+      const width = `${(Math.abs(d) * 50).toFixed(1)}%`;
+      if (width !== this.tiltWidth) {
+        this.tiltWidth = width;
+        this.tiltFill.style.width = width;
+      }
     }
   }
 
@@ -581,5 +606,6 @@ export class TouchControls implements TouchSource {
     this.el.remove();
     this.turn.remove();
     document.body.classList.remove('rw-upright');
+    this.uprightOn = false;
   }
 }

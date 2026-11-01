@@ -69,6 +69,7 @@ describe('best-run ghost: the exe layout in the store', () => {
     m.store.setItem(bestKey(stage.id, stage.seed, 'awd_wrc'), JSON.stringify({ v: 1, time: 20, splits: [5, 10, 20], archetype: 'awd_wrc', date: 1, resets: 0 }));
     m.race.begin(stage, m.car, { countdown: false });
     expect(m.race.hasGhost).toBe(false);
+    expect(m.race.ghostLook()).toBeNull();
     m.race.startNow();
     cruise(m.car, m.race, 10, 10);
     expect(m.race.ghostInfos()).toEqual([]);
@@ -94,6 +95,7 @@ describe('best-run ghost: the exe layout in the store', () => {
     const car = b.car;
     b.race.begin(stage, car, { countdown: false });
     expect(b.race.hasGhost).toBe(true);
+    expect(b.race.ghostLook()).toEqual({ origCar: undefined, archetype: 'awd_wrc' }); // the best run: the player's own car
     expect(b.race.ghostPose()).toBeNull(); // not started
     b.race.startNow();
     expect(b.race.ghostInfos()).toEqual([]);
@@ -209,6 +211,8 @@ describe('racing a saved ghost', () => {
     await b.race.prepareGhost(sel);
     b.race.begin(stage, b.car, { countdown: false, origCar: 'Corolla', ghost: sel });
     expect(b.race.hasGhost).toBe(true);
+    // main.ts loads the ghost's visual with the race: its car is known before GO (the file's, not the player's Corolla)
+    expect(b.race.ghostLook()?.origCar).toBe('Micra');
     expect(b.race.selectedGhost).toEqual(sel);
     b.race.startNow();
     cruise(b.car, b.race, 0, 600);

@@ -225,6 +225,11 @@ export class GhostSession {
     return this.playing !== null;
   }
 
+  /** The car the playback ghost is drawn with, once it is attached (null: none yet): main.ts loads its visual with the race. */
+  playbackLook(): { origCar?: string; archetype: ArchetypeId } | null {
+    return this.playing?.look ?? null;
+  }
+
   /** The playback ghost's pose at the render alpha (THREE space), or null before it has one. Reused object. */
   pose(alpha: number): GhostPose | null {
     if (!this.playing || !this.havePose) return null;
